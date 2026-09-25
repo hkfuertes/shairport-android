@@ -8,9 +8,9 @@ API 24 has no shm_open; map the NQPTP interface from /dev/shm directly.
 Upstream: not submitted (Android/Bionic only; not needed with glibc/musl)
 Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 ---
- android-shm-compat.h | 31 +++++++++++++++++++++++++++++++
+ android-shm-compat.h | 34 ++++++++++++++++++++++++++++++++++
  ptp-utilities.c      |  1 +
- 2 files changed, 32 insertions(+)
+ 2 files changed, 35 insertions(+)
  create mode 100644 android-shm-compat.h
 
 diff --git a/android-shm-compat.h b/android-shm-compat.h
@@ -18,7 +18,7 @@ new file mode 100644
 index 0000000..467f026
 --- /dev/null
 +++ b/android-shm-compat.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,34 @@
 +#ifndef SHAIRPORT_ANDROID_SHM_COMPAT_H
 +#define SHAIRPORT_ANDROID_SHM_COMPAT_H
 +
@@ -26,11 +26,11 @@ index 0000000..467f026
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stdio.h>
++#include <stdlib.h>
 +#include <string.h>
 +#include <sys/types.h>
 +#include <unistd.h>
 +
-+#define SHAIRPORT_SHM_DIRECTORY "/dev/shm"
 +#define SHAIRPORT_SHM_PATH_MAX 256
 +
 +static inline int shairport_shm_open(const char *name, int oflag, mode_t mode) {
@@ -39,7 +39,10 @@ index 0000000..467f026
 +    errno = EINVAL;
 +    return -1;
 +  }
-+  int written = snprintf(path, sizeof(path), SHAIRPORT_SHM_DIRECTORY "%s", name);
++  const char *directory = getenv("NQPTP_SHM_DIRECTORY");
++  if (directory == NULL || directory[0] != '/')
++    directory = "/dev/shm";
++  int written = snprintf(path, sizeof(path), "%s%s", directory, name);
 +  if (written < 0 || written >= (int)sizeof(path)) {
 +    errno = ENAMETOOLONG;
 +    return -1;

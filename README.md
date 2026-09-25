@@ -2,7 +2,7 @@
 
 Seed repository for running Shairport Sync AirPlay 2 on Android through JNI and `AudioTrack`.
 
-This is deliberately **not** an upstream source mirror. `app/` is a buildable Kotlin skeleton: a classic XML preference activity requests `su` on launch, keeps its settings disabled without root, writes `shairport-sync.conf`, and controls a foreground service with a Wi-Fi multicast lock. It includes a JNI `.so` and an `AudioTrack` lifecycle/probe bridge, but does not yet link Shairport or run NQPTP on a device.
+This is deliberately **not** an upstream source mirror. `app/` is a buildable Kotlin skeleton: a classic XML preference activity requests `su` on launch, keeps its settings disabled without root, writes `shairport-sync.conf`, and controls a foreground service with a Wi-Fi multicast lock. It packages and runs NQPTP as a rooted native executable for both supported ABIs; JNI verifies its shared-memory mapping and probes `AudioTrack`. It does **not** yet link or run Shairport, so it does not advertise or receive AirPlay.
 
 `make fetch` downloads pinned Shairport Sync and NQPTP source trees into ignored `third_party/`; `make patch` applies only the Android-compatible patch stack.
 
@@ -28,7 +28,7 @@ The script mounts `~/.android`, preserving the debug signing key so `adb install
 - A minimal API-25 Kotlin app, XML preferences, root gate, foreground notification, and generated runtime configuration.
 - JNI and `AudioTrack` bridges for `armeabi-v7a` and `arm64-v8a`.
 - [`scripts/build-android-docker.sh`](scripts/build-android-docker.sh), the Docker-only APK build entry point.
-- [`scripts/build-nqptp-android.sh`](scripts/build-nqptp-android.sh), an `armv7a-linux-androideabi25` NQPTP build spike intended for that Docker builder; its output stays ignored under `build/`.
+- [`scripts/build-nqptp-android.sh`](scripts/build-nqptp-android.sh), which cross-builds NQPTP for `armeabi-v7a` and `arm64-v8a`; Docker packages it as an extracted native executable.
 
 ## Intentionally excluded
 

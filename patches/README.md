@@ -3,7 +3,7 @@
 `make patch` applies these patches, in order, to the source trees fetched by `make fetch`:
 
 1. `shairport-sync/android/`: Bionic library discovery, cooperative cancellation, and shared-memory compatibility. They were copied from `shairport-echo` commit `395aded`, before that project moved to static musl.
-2. `nqptp/`: Bionic library and shared-memory compatibility, from the same commit.
+2. `nqptp/`: Bionic library and shared-memory compatibility, including `NQPTP_SHM_DIRECTORY` for Android app storage.
 3. `shairport-sync/0001-*`: TinySVCmDNS AirPlay 2 TXT registration.
 4. `shairport-sync/0002-*`: configurable `general.model`.
 

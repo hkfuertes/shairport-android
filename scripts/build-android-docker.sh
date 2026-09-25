@@ -34,4 +34,4 @@ exec docker run --rm --network none \
   -v "$android_user_home:/tmp/.android" \
   -w /work \
   "$image" \
-  -c './gradlew --offline --no-daemon --console=plain :app:assembleDebug'
+  -c './scripts/build-nqptp-android.sh && ./gradlew --offline --no-daemon --console=plain :app:assembleDebug'

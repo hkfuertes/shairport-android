@@ -21,6 +21,9 @@ import java.nio.charset.StandardCharsets
 
 class ReceiverService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var nqptp: Process? = null
+    private var nqptpSharedDirectory: File? = null
+    @Volatile private var startGeneration = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -29,14 +32,29 @@ class ReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(R.string.notification_active))
+        startForeground(NOTIFICATION_ID, buildNotification(R.string.notification_starting))
+        val generation = ++startGeneration
         try {
-            val error = NativeBridge.start(writeConfig().absolutePath)
-            if (error == null) {
-                notifyForeground(R.string.notification_active)
+            val config = writeConfig()
+            val sharedDirectory = startNqptp()
+            if (sharedDirectory == null) {
+                notifyForeground(R.string.notification_nqptp_error)
             } else {
-                Log.e(TAG, "Could not start JNI bridge: $error")
-                notifyForeground(R.string.notification_native_error)
+                Thread({
+                    if (!waitForNqptp(sharedDirectory)) {
+                        if (generation == startGeneration) {
+                            notifyForeground(R.string.notification_nqptp_error)
+                        }
+                    } else if (generation == startGeneration) {
+                        val error = NativeBridge.start(config.absolutePath, sharedDirectory.absolutePath)
+                        if (error == null) {
+                            notifyForeground(R.string.notification_active)
+                        } else {
+                            Log.e(TAG, "Could not start JNI bridge: $error")
+                            notifyForeground(R.string.notification_native_error)
+                        }
+                    }
+                }, "receiver-start").start()
             }
         } catch (e: IOException) {
             Log.e(TAG, "Could not write Shairport configuration", e)
@@ -46,12 +64,100 @@ class ReceiverService : Service() {
     }
 
     override fun onDestroy() {
+        startGeneration++
         NativeBridge.stop()
+        stopNqptp()
         multicastLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun startNqptp(): File? {
+        nqptp?.takeIf { it.isAlive }?.let { process ->
+            nqptpSharedDirectory?.let { return it }
+            process.destroy()
+        }
+        stopNqptp()
+
+        val externalFiles = getExternalFilesDir(null) ?: run {
+            Log.e(TAG, "External app storage is unavailable for NQPTP")
+            return null
+        }
+        val sharedDirectory = File(externalFiles, "nqptp-shm")
+        if (!sharedDirectory.exists() && !sharedDirectory.mkdirs()) {
+            Log.e(TAG, "Could not create NQPTP shared-memory directory")
+            return null
+        }
+        File(sharedDirectory, "nqptp").delete()
+        File(sharedDirectory, "nqptp-supervisor.pid").delete()
+
+        val executable = File(applicationInfo.nativeLibraryDir, "libnqptp.so")
+        if (!executable.canExecute()) {
+            Log.e(TAG, "NQPTP executable is unavailable: $executable")
+            return null
+        }
+        val userId = android.os.Process.myUid() / PER_USER_RANGE
+        val rootSharedDirectory = "/data/media/$userId/Android/data/$packageName/files/nqptp-shm"
+        val rootPidFile = "$rootSharedDirectory/nqptp-supervisor.pid"
+        val appPid = android.os.Process.myPid()
+        // ponytail: poll the app PID once a second; replace only if Magisk exposes parent-bound jobs.
+        val command = "NQPTP_SHM_DIRECTORY=${shellQuote(rootSharedDirectory)} " +
+            "${shellQuote(executable.absolutePath)} -v & child=\$!; " +
+            "printf '%s\\n' \"\$\$\" > ${shellQuote(rootPidFile)}; " +
+            "cleanup() { kill \"\$child\" 2>/dev/null || true; wait \"\$child\" 2>/dev/null || true; " +
+            "rm -f ${shellQuote(rootPidFile)}; }; " +
+            "trap 'cleanup; exit 0' INT TERM; " +
+            "while kill -0 $appPid 2>/dev/null; do " +
+            "kill -0 \"\$child\" 2>/dev/null || { cleanup; exit 1; }; sleep 1; done; cleanup"
+        return try {
+            ProcessBuilder("su", "-c", command).redirectErrorStream(true).start().also { process ->
+                nqptp = process
+                nqptpSharedDirectory = sharedDirectory
+                Thread({
+                    process.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { Log.i(TAG, "NQPTP: $it") }
+                    }
+                }, "nqptp-log").start()
+            }
+            sharedDirectory
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not start NQPTP", error)
+            null
+        }
+    }
+
+    private fun waitForNqptp(sharedDirectory: File): Boolean {
+        repeat(20) {
+            if (File(sharedDirectory, "nqptp").canRead()) return true
+            if (nqptp?.isAlive != true) return false
+            try {
+                Thread.sleep(100)
+            } catch (_: InterruptedException) {
+                return false
+            }
+        }
+        return false
+    }
+
+    private fun stopNqptp() {
+        val pid = nqptpSharedDirectory
+            ?.let { File(it, "nqptp-supervisor.pid") }
+            ?.takeIf { it.isFile }
+            ?.let { runCatching { it.readText().trim().toIntOrNull() }.getOrNull() }
+        if (pid != null && pid > 1) {
+            try {
+                ProcessBuilder("su", "-c", "kill $pid").start()
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not stop NQPTP supervisor", error)
+            }
+        }
+        nqptp?.destroy()
+        nqptp = null
+        nqptpSharedDirectory = null
+    }
+
+    private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
 
     private fun acquireMulticastLock() {
         val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
@@ -139,6 +245,7 @@ class ReceiverService : Service() {
         private const val TAG = "ShairportAP2"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
+        private const val PER_USER_RANGE = 100000
 
         fun start(context: Context) {
             val intent = Intent(context, ReceiverService::class.java)

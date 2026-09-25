@@ -14,17 +14,17 @@ new file mode 100644
 index 0000000..a4f93ee
 --- /dev/null
 +++ b/android-shm-compat.c
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,38 @@
 +#include "android-shm-compat.h"
 +
 +#ifdef __ANDROID__
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <stdio.h>
++#include <stdlib.h>
 +#include <string.h>
 +#include <unistd.h>
 +
-+#define NQPTP_SHM_DIRECTORY "/dev/shm"
 +#define NQPTP_SHM_PATH_MAX 256
 +
 +static int shm_path(char path[NQPTP_SHM_PATH_MAX], const char *name) {
@@ -32,7 +32,10 @@ index 0000000..a4f93ee
 +    errno = EINVAL;
 +    return -1;
 +  }
-+  int written = snprintf(path, NQPTP_SHM_PATH_MAX, NQPTP_SHM_DIRECTORY "%s", name);
++  const char *directory = getenv("NQPTP_SHM_DIRECTORY");
++  if (directory == NULL || directory[0] != '/')
++    directory = "/dev/shm";
++  int written = snprintf(path, NQPTP_SHM_PATH_MAX, "%s%s", directory, name);
 +  if (written < 0 || written >= NQPTP_SHM_PATH_MAX) {
 +    errno = ENAMETOOLONG;
 +    return -1;
