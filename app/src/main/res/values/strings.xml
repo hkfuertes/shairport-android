@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Shairport AP2</string>
+    <string name="root_access_title">Acceso root</string>
+    <string name="root_access_checking">Solicitando acceso a Magisk…</string>
+    <string name="root_access_granted">Root concedido</string>
+    <string name="root_access_denied">Toca para solicitar acceso root</string>
+    <string name="receiver_category">Receptor</string>
+    <string name="receiver_enabled_title">Mantener servicio activo</string>
+    <string name="receiver_enabled_summary">Inicia el servicio en primer plano y conserva el multicast Wi-Fi.</string>
+    <string name="configuration_category">Configuración de Shairport</string>
+    <string name="server_name_title">Nombre anunciado</string>
+    <string name="server_name_summary">Nombre visible para los emisores AirPlay.</string>
+    <string name="model_title">Modelo anunciado</string>
+    <string name="model_summary">Modelo incluido en el registro AirPlay.</string>
+    <string name="interface_title">Interfaz Wi-Fi</string>
+    <string name="interface_summary">Normalmente wlan0.</string>
+    <string name="port_title">Puerto AirPlay</string>
+    <string name="port_summary">Entre 1 y 65535.</string>
+    <string name="playback_mode_title">Modo de reproducción</string>
+    <string name="playback_mode_summary">Formato enviado al futuro backend AudioTrack.</string>
+    <string name="fixed_category">Motor fijo</string>
+    <string name="fixed_engine_title">Servicio, backend y descubrimiento</string>
+    <string name="fixed_engine_summary">AirPlay 2 + AudioTrack + TinySVCmDNS; motor nativo pendiente.</string>
+    <string name="invalid_port">El puerto debe estar entre 1 y 65535.</string>
+    <string name="notification_channel_name">Servicio Shairport AP2</string>
+    <string name="notification_active">Servicio en primer plano activo; motor nativo pendiente.</string>
+    <string name="notification_config_error">No se pudo guardar la configuración.</string>
+</resources>

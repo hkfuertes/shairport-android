@@ -8,7 +8,7 @@ Port Shairport Sync AirPlay 2 to an Android app that owns audio through JNI + Ja
 
 Repository: `/home/hkfuertes/projects/shairport-ap2-android`
 
-It was initialized as a new local Git repository on `main`; it has no commit or remote yet. No Android app, JNI implementation, or compiled binary has been started.
+The initial seed is committed on `main`; current implementation work is on `feat/android-foreground-service`. It now has a minimal Kotlin Android app, but no JNI implementation or native Shairport binary.
 
 The seed deliberately does **not** track upstream source trees. Its current useful entry points are:
 
@@ -50,7 +50,7 @@ Do not revive the old AP2 reverse-event or embedded Echo-controls patches. The p
 
 ## First implementation order
 
-1. Create the smallest Android Gradle app: API 25 minimum, a foreground service, JNI library loading, Wi-Fi multicast permission/lock, and no UI beyond start/stop/log visibility.
+1. **Partial:** the API-25 Kotlin Gradle app, classic XML preferences, `su` gate, foreground service, notification and Wi-Fi multicast lock exist. JNI library loading and native start/stop/log integration remain.
 2. Build a dependency spike for `armv7a-linux-androideabi25`: Shairport AP2 dependencies plus NQPTP. Keep the fetched source trees untracked and introduce CMake/ndk-build only after the dependency list is reproducible.
 3. Run an NQPTP permission/lifecycle probe under the actual app UID and, separately if useful, under `su`. Record ports, shared-memory path and SELinux failures.
 4. Add a new Shairport patch named `audio_audiotrack`: configure switch, `Makefile.am` registration, `audio.c` registration and `audio_audiotrack.c`. Start with 48 kHz, stereo, S16_LE and blocking writes.

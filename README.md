@@ -2,7 +2,9 @@
 
 Seed repository for running Shairport Sync AirPlay 2 on Android through JNI and `AudioTrack`.
 
-This is deliberately **not** an upstream source mirror and is not buildable yet. `make fetch` downloads pinned Shairport Sync and NQPTP source trees into ignored `third_party/`; `make patch` applies only the Android-compatible patch stack. The future `audio_audiotrack` backend and Android app/service do not exist yet.
+This is deliberately **not** an upstream source mirror. `app/` is a buildable Kotlin skeleton: a classic XML preference activity requests `su` on launch, keeps its settings disabled without root, writes `shairport-sync.conf`, and controls a foreground service with a Wi-Fi multicast lock. It does not yet include JNI, NQPTP, or a working AirPlay receiver.
+
+`make fetch` downloads pinned Shairport Sync and NQPTP source trees into ignored `third_party/`; `make patch` applies only the Android-compatible patch stack.
 
 ```sh
 make fetch
@@ -15,6 +17,7 @@ make patch
 - Bionic compatibility patches needed for API 25, retained from the pre-musl Echo tree.
 - TinySVCmDNS AirPlay 2 TXT and configurable advertised-model patches.
 - An `audiotrack` configuration example and an explicit patch order.
+- A minimal API-25 Kotlin app, XML preferences, root gate, foreground notification, and generated runtime configuration.
 
 ## Intentionally excluded
 

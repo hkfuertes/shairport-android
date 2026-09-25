@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="playback_mode_entries">
+        <item>Estéreo</item>
+        <item>Mono</item>
+    </string-array>
+    <string-array name="playback_mode_values">
+        <item>stereo</item>
+        <item>mono</item>
+    </string-array>
+</resources>
