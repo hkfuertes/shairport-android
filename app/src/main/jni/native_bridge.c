@@ -16,7 +16,7 @@ static jstring error_string(JNIEnv *env, const char *message) {
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_hkuertes_shairportap2_NativeBridge_nativeStart(JNIEnv *env, jobject self,
+Java_com_hkfuertes_shairportap2_NativeBridge_nativeStart(JNIEnv *env, jobject self,
                                                          jstring config_path) {
   (void)self;
   if (config_path == NULL)
@@ -52,7 +52,7 @@ Java_com_hkuertes_shairportap2_NativeBridge_nativeStart(JNIEnv *env, jobject sel
 }
 
 JNIEXPORT void JNICALL
-Java_com_hkuertes_shairportap2_NativeBridge_nativeStop(JNIEnv *env, jobject self) {
+Java_com_hkfuertes_shairportap2_NativeBridge_nativeStop(JNIEnv *env, jobject self) {
   (void)env;
   (void)self;
   audiotrack_bridge_release();

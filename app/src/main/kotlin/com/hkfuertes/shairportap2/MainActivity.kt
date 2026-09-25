@@ -1,4 +1,4 @@
-package com.hkuertes.shairportap2
+package com.hkfuertes.shairportap2
 
 import android.Manifest
 import android.preference.PreferenceActivity

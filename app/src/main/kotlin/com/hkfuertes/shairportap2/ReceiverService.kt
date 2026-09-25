@@ -1,4 +1,4 @@
-package com.hkuertes.shairportap2
+package com.hkfuertes.shairportap2
 
 import android.app.Notification
 import android.app.NotificationChannel

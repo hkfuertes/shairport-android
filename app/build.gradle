@@ -6,7 +6,7 @@ plugins {
 def ndkHome = System.getenv('ANDROID_NDK_HOME')
 
 android {
-    namespace 'com.hkuertes.shairportap2'
+    namespace 'com.hkfuertes.shairportap2'
     compileSdk 35
     ndkVersion '27.2.12479018'
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId 'com.hkuertes.shairportap2'
+        applicationId 'com.hkfuertes.shairportap2'
         minSdk 25
         targetSdk 35
         versionCode 1

@@ -66,7 +66,7 @@ static void call_void(jmethodID method) {
 
 int audiotrack_bridge_init(JNIEnv *env, JavaVM *vm) {
   java_vm = vm;
-  jclass local = (*env)->FindClass(env, "com/hkuertes/shairportap2/AudioTrackBridge");
+  jclass local = (*env)->FindClass(env, "com/hkfuertes/shairportap2/AudioTrackBridge");
   if (local == NULL)
     return -1;
   bridge_class = (*env)->NewGlobalRef(env, local);

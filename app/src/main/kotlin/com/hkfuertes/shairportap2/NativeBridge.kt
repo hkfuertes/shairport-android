@@ -1,4 +1,4 @@
-package com.hkuertes.shairportap2
+package com.hkfuertes.shairportap2
 
 object NativeBridge {
     private val loadError: String? = try {
