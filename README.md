@@ -17,6 +17,8 @@ Build the APK only through Docker:
 ./scripts/build-android-docker.sh
 ```
 
+The script mounts `~/.android`, preserving the debug signing key so `adb install -r` works across builds.
+
 ## Included
 
 - Shairport Sync 5.5.1 and NQPTP 1.2.8 pins in [`upstream.env`](upstream.env).
