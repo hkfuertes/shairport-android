@@ -6,6 +6,7 @@
 2. `nqptp/`: Bionic library and shared-memory compatibility, including `NQPTP_SHM_DIRECTORY` for Android app storage.
 3. `shairport-sync/0001-*`: TinySVCmDNS AirPlay 2 TXT registration.
 4. `shairport-sync/0002-*`: configurable `general.model`.
+5. `shairport-sync/0003-*`: TinySVCmDNS host name `shairport-<MAC>.local` when the system reports `localhost` (always on Android; the POCO kernel has no UTS namespaces).
 
 `reference/0003-echo-*` is **not applied**. It is the previous raw Echo ALSA backend and is useful only as a small, concrete example of Shairport's audio-backend integration points. Replace it with a new `audio_audiotrack` patch.
 
