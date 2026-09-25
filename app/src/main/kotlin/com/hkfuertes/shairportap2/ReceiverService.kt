@@ -31,7 +31,13 @@ class ReceiverService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification(R.string.notification_active))
         try {
-            writeConfig()
+            val error = NativeBridge.start(writeConfig().absolutePath)
+            if (error == null) {
+                notifyForeground(R.string.notification_active)
+            } else {
+                Log.e(TAG, "Could not start JNI bridge: $error")
+                notifyForeground(R.string.notification_native_error)
+            }
         } catch (e: IOException) {
             Log.e(TAG, "Could not write Shairport configuration", e)
             notifyForeground(R.string.notification_config_error)
@@ -40,6 +46,7 @@ class ReceiverService : Service() {
     }
 
     override fun onDestroy() {
+        NativeBridge.stop()
         multicastLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
@@ -94,7 +101,7 @@ class ReceiverService : Service() {
             .build()
     }
 
-    private fun writeConfig() {
+    private fun writeConfig(): File {
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
         val config = File(filesDir, "shairport-sync.conf")
         OutputStreamWriter(FileOutputStream(config), StandardCharsets.UTF_8).use { writer ->
@@ -109,6 +116,7 @@ class ReceiverService : Service() {
             writeQuoted(writer, "playback_mode", value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))
             writer.write("};\n")
         }
+        return config
     }
 
     private fun writeQuoted(writer: Writer, key: String, value: String) {

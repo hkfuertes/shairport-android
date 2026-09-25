@@ -21,9 +21,10 @@
     <string name="playback_mode_summary">Formato enviado al futuro backend AudioTrack.</string>
     <string name="fixed_category">Motor fijo</string>
     <string name="fixed_engine_title">Servicio, backend y descubrimiento</string>
-    <string name="fixed_engine_summary">AirPlay 2 + AudioTrack + TinySVCmDNS; motor nativo pendiente.</string>
+    <string name="fixed_engine_summary">AirPlay 2 + AudioTrack + TinySVCmDNS; motor Shairport pendiente.</string>
     <string name="invalid_port">El puerto debe estar entre 1 y 65535.</string>
     <string name="notification_channel_name">Servicio Shairport AP2</string>
-    <string name="notification_active">Servicio en primer plano activo; motor nativo pendiente.</string>
+    <string name="notification_active">JNI y AudioTrack listos; motor Shairport pendiente.</string>
+    <string name="notification_native_error">No se pudo iniciar el puente JNI o AudioTrack.</string>
     <string name="notification_config_error">No se pudo guardar la configuración.</string>
 </resources>
