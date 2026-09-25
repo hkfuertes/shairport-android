@@ -10,6 +10,7 @@ import android.preference.Preference
 import android.preference.PreferenceGroup
 import android.preference.PreferenceManager
 import android.widget.Toast
+import java.util.concurrent.TimeUnit
 
 @Suppress("DEPRECATION") // Classic XML preferences are deliberate for this background app.
 class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
@@ -134,11 +135,10 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             process = ProcessBuilder("su", "-c", "id")
                 .redirectErrorStream(true)
                 .start()
-            var uidZero = false
+            if (!process.waitFor(ROOT_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return false
             process.inputStream.bufferedReader().use { output ->
-                output.forEachLine { uidZero = uidZero || it.contains("uid=0") }
+                process.exitValue() == 0 && output.readText().contains("uid=0")
             }
-            process.waitFor() == 0 && uidZero
         } catch (_: Exception) {
             false
         } finally {
@@ -154,6 +154,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         const val PREF_PORT = "port"
         const val PREF_PLAYBACK_MODE = "playback_mode"
         private const val PREF_ROOT_ACCESS = "root_access"
+        private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
 
         fun isValidPort(value: String) = value.toIntOrNull()?.let { it in 1..65535 } == true
     }

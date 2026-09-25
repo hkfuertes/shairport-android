@@ -5,7 +5,7 @@ object NativeBridge {
         System.loadLibrary("shairport_ap2")
         null
     } catch (error: UnsatisfiedLinkError) {
-        error.message ?: "No se pudo cargar la biblioteca JNI"
+        error.message ?: "Could not load the JNI library"
     }
 
     fun start(configPath: String): String? = loadError ?: nativeStart(configPath)
