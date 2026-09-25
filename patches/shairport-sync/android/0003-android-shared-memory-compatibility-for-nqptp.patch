@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Fri, 25 Sep 2026 09:16:39 +0200
+Subject: [PATCH 3/3] android: shared-memory compatibility for nqptp
+
+API 24 has no shm_open; map the NQPTP interface from /dev/shm directly.
+
+Upstream: not submitted (Android/Bionic only; not needed with glibc/musl)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ android-shm-compat.h | 31 +++++++++++++++++++++++++++++++
+ ptp-utilities.c      |  1 +
+ 2 files changed, 32 insertions(+)
+ create mode 100644 android-shm-compat.h
+
+diff --git a/android-shm-compat.h b/android-shm-compat.h
+new file mode 100644
+index 0000000..467f026
+--- /dev/null
++++ b/android-shm-compat.h
+@@ -0,0 +1,31 @@
++#ifndef SHAIRPORT_ANDROID_SHM_COMPAT_H
++#define SHAIRPORT_ANDROID_SHM_COMPAT_H
++
++#ifdef __ANDROID__
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/types.h>
++#include <unistd.h>
++
++#define SHAIRPORT_SHM_DIRECTORY "/dev/shm"
++#define SHAIRPORT_SHM_PATH_MAX 256
++
++static inline int shairport_shm_open(const char *name, int oflag, mode_t mode) {
++  char path[SHAIRPORT_SHM_PATH_MAX];
++  if (name == NULL || name[0] != '/' || name[1] == '\0' || strchr(name + 1, '/') != NULL) {
++    errno = EINVAL;
++    return -1;
++  }
++  int written = snprintf(path, sizeof(path), SHAIRPORT_SHM_DIRECTORY "%s", name);
++  if (written < 0 || written >= (int)sizeof(path)) {
++    errno = ENAMETOOLONG;
++    return -1;
++  }
++  return open(path, oflag, mode);
++}
++#define shm_open shairport_shm_open
++#endif
++
++#endif
+diff --git a/ptp-utilities.c b/ptp-utilities.c
+index 35dce40..37b5e40 100644
+--- a/ptp-utilities.c
++++ b/ptp-utilities.c
+@@ -25,6 +25,7 @@
+  */
+ 
+ #include "definitions.h"
++#include "android-shm-compat.h"
+ #include <arpa/inet.h>
+ #include <errno.h>
+ #include <fcntl.h>

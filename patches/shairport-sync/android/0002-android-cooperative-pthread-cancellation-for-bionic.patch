@@ -1,0 +1,270 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Fri, 25 Sep 2026 09:16:39 +0200
+Subject: [PATCH 2/3] android: cooperative pthread cancellation for bionic
+
+Android lacks pthread_cancel. Provide a SIGUSR1 cooperative shim and add
+explicit cancellation checks where glibc would have cancellation points:
+the AP2 control/realtime receivers (poll, 250 ms ceiling), the event
+receiver (accept and idle loop), and the buffered-audio processor and TCP
+reader (condition waits, accept, recv). A cancel wake-up (EINTR) is tested
+immediately. Before cancelling the event receiver, shutdown() its listening
+socket so a blocked accept() returns at once instead of racing the signal.
+
+Upstream: not submitted (Android/Bionic only; not needed with glibc/musl)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ ap2_buffered_audio_processor.c |  5 +++-
+ ap2_event_receiver.c           |  1 +
+ common.c                       | 45 ++++++++++++++++++++++++++++++++++
+ rtp.c                          | 23 +++++++++++++++++
+ rtsp.c                         |  1 +
+ utilities/buffered_read.c      |  4 +++
+ utilities/debug.h              | 18 ++++++++++++++
+ utilities/network_utilities.c  |  2 ++
+ 8 files changed, 98 insertions(+), 1 deletion(-)
+
+diff --git a/ap2_buffered_audio_processor.c b/ap2_buffered_audio_processor.c
+index 2319abc..e114ce0 100644
+--- a/ap2_buffered_audio_processor.c
++++ b/ap2_buffered_audio_processor.c
+@@ -212,12 +212,15 @@ void *rtp_buffered_audio_processor(void *arg) {
+   // double requested_lead_time = 0.0; // normal lead time minimum -- maybe  it should be about 0.1
+ 
+   // wait until our timing information is valid
+-  while (have_ptp_timing_information(conn) == 0)
++  while (have_ptp_timing_information(conn) == 0) {
+     usleep(1000);
++    pthread_testcancel();
++  }
+ 
+   reset_buffer(conn); // in case there is any garbage in the player
+ 
+   do {
++    pthread_testcancel();
+ 
+     if ((play_enabled == 0) && (conn->ap2_play_enabled != 0)) {
+       // play newly started
+diff --git a/ap2_event_receiver.c b/ap2_event_receiver.c
+index f7923a4..39fe7f8 100644
+--- a/ap2_event_receiver.c
++++ b/ap2_event_receiver.c
+@@ -81,6 +81,7 @@ void *ap2_event_receiver(void *arg) {
+ 
+     while (1) {
+       usleep(100000);
++      pthread_testcancel();
+     };
+ 
+     debug(3, "Connection %d: AP2 Event Receiver RTP thread starting \"normal\" exit.",
+diff --git a/common.c b/common.c
+index f041c22..b55d8fd 100644
+--- a/common.c
++++ b/common.c
+@@ -41,6 +41,7 @@
+ #include <math.h>
+ #include <memory.h>
+ #include <poll.h>
++#include <signal.h>
+ #include <popt.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -74,6 +75,50 @@
+ #include <netinet/in.h>
+ #endif
+ 
++#ifdef __ANDROID__
++static pthread_once_t android_cancel_once = PTHREAD_ONCE_INIT;
++static __thread volatile sig_atomic_t android_cancel_requested;
++
++static void android_cancel_handler(int signal_number) {
++  (void)signal_number;
++  android_cancel_requested = 1;
++}
++
++static void android_cancel_init(void) {
++  struct sigaction action;
++  memset(&action, 0, sizeof(action));
++  action.sa_handler = android_cancel_handler;
++  sigemptyset(&action.sa_mask);
++  sigaction(SIGUSR1, &action, NULL);
++}
++
++int shairport_pthread_cancel(pthread_t thread) {
++  // ponytail: cooperative SIGUSR1 cancellation; use native Bionic cancellation if it becomes available.
++  int rc = pthread_once(&android_cancel_once, android_cancel_init);
++  if (rc)
++    return rc;
++  return pthread_kill(thread, SIGUSR1);
++}
++
++void shairport_pthread_testcancel(void) {
++  if (android_cancel_requested)
++    pthread_exit(NULL);
++}
++
++int shairport_pthread_setcancelstate(int state, int *old_state) {
++  (void)state;
++  if (old_state)
++    *old_state = 0;
++  return 0;
++}
++
++int shairport_pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit) {
++  (void)attr;
++  (void)inherit;
++  return 0;
++}
++#endif
++
+ #ifdef CONFIG_CONVOLUTION
+ #include <ctype.h>
+ #include <sndfile.h>
+diff --git a/rtp.c b/rtp.c
+index ec71896..94dcbbb 100644
+--- a/rtp.c
++++ b/rtp.c
+@@ -39,6 +39,7 @@
+ #include <netdb.h>
+ #include <netinet/in.h>
+ #include <pthread.h>
++#include <poll.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -1618,6 +1619,18 @@ int32_t decipher_player_put_packet(uint8_t *ciphered_audio_alt, ssize_t nread,
+   }
+ }
+ 
++#ifdef __ANDROID__
++// Bionic has no pthread cancellation. Do not let a cooperative cancellation
++// request wait indefinitely for a silent AP2 socket to receive another packet.
++static int android_wait_for_ap2_packet(int socket_fd) {
++  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
++  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
++  int rc = poll(&poll_fd, 1, 250);
++  pthread_testcancel();
++  return rc > 0;
++}
++#endif
++
+ void *rtp_ap2_control_receiver(void *arg) {
+   const int32_t ap2_realttime_stream_latency_fudge_factor = 11025; // seems to bring everything into sync
+   //  #include <syscall.h>
+@@ -1634,8 +1647,13 @@ void *rtp_ap2_control_receiver(void *arg) {
+     socklen_t from_sock_addr_length = sizeof(SOCKADDR);
+     memset(&from_sock_addr, 0, sizeof(SOCKADDR));
+ 
++#ifdef __ANDROID__
++    if (!android_wait_for_ap2_packet(conn->ap2_control_socket))
++      continue;
++#endif
+     nread = recvfrom(conn->ap2_control_socket, packet, sizeof(packet), 0,
+                      (struct sockaddr *)&from_sock_addr, &from_sock_addr_length);
++    pthread_testcancel();
+     uint64_t time_now = get_absolute_time_in_ns();
+     int64_t time_since_start = time_now - start_time;
+ 
+@@ -1798,7 +1816,12 @@ void *rtp_realtime_audio_receiver(void *arg) {
+   int32_t last_seqno = -1;
+   ssize_t nread;
+   while (1) {
++#ifdef __ANDROID__
++    if (!android_wait_for_ap2_packet(conn->realtime_audio_socket))
++      continue;
++#endif
+     nread = recv(conn->realtime_audio_socket, packet, sizeof(packet), 0);
++    pthread_testcancel();
+ 
+     if (nread > 36) { // 36 is the 12-byte header and and 24-byte footer
+       if ((config.diagnostic_drop_packet_fraction == 0.0) ||
+diff --git a/rtsp.c b/rtsp.c
+index 303d3b4..edb4f09 100644
+--- a/rtsp.c
++++ b/rtsp.c
+@@ -4020,6 +4020,7 @@ void rtsp_conversation_thread_cleanup_function(void *arg) {
+ 
+     // give the event receiver a chance to exit normally, if it exists
+     if (conn->rtp_event_thread != NULL) {
++      shutdown(conn->event_socket, SHUT_RDWR); // wake a blocked accept() at once
+       pthread_cancel(*conn->rtp_event_thread);
+       pthread_join(*conn->rtp_event_thread, NULL);
+       free(conn->rtp_event_thread);
+diff --git a/utilities/buffered_read.c b/utilities/buffered_read.c
+index 2f5a07c..958f484 100644
+--- a/utilities/buffered_read.c
++++ b/utilities/buffered_read.c
+@@ -53,6 +53,7 @@ ssize_t buffered_read(buffered_tcp_desc *descriptor, void *buf, size_t count,
+     else
+       debug(2, "buffered_read: signalled with %zu bytes after waiting.",
+             descriptor->buffer_occupancy);
++    pthread_testcancel(); // a cancel wake-up may look like a spurious wake-up
+   }
+ 
+   if (descriptor->error_code) {
+@@ -110,6 +111,7 @@ void *buffered_tcp_reader(void *arg) {
+   socklen_t addr_size = sizeof(remote_addr);
+   int finished = 0;
+   int fd = accept(descriptor->sock_fd, (struct sockaddr *)&remote_addr, &addr_size);
++  pthread_testcancel();
+   // debug(1, "buffered_tcp_reader: the client has opened a buffered audio link.");
+   // intptr_t pfd = fd;
+   pthread_cleanup_push(socket_cleanup, (void *)&fd);
+@@ -122,6 +124,7 @@ void *buffered_tcp_reader(void *arg) {
+     while (descriptor->buffer_occupancy == descriptor->buffer_max_size) {
+       if (pthread_cond_wait(&descriptor->not_full_cv, &descriptor->mutex))
+         debug(1, "Error waiting for not_full_cv");
++      pthread_testcancel();
+     }
+     pthread_cleanup_pop(1); // release the mutex
+ 
+@@ -148,6 +151,7 @@ void *buffered_tcp_reader(void *arg) {
+     if (descriptor->buffer_occupancy == 0)
+       debug(2, "recv of up to %zd bytes with an buffer empty.", bytes_to_request);
+     nread = recv(fd, descriptor->eoq, bytes_to_request, 0);
++    pthread_testcancel();
+     // debug(1, "Received %d bytes for a buffer size of %d bytes.",nread,
+     // descriptor->buffer_occupancy + nread);
+     if (pthread_mutex_lock(&descriptor->mutex) != 0)
+diff --git a/utilities/debug.h b/utilities/debug.h
+index 751bbd2..2470c52 100644
+--- a/utilities/debug.h
++++ b/utilities/debug.h
+@@ -27,6 +27,24 @@ SOFTWARE.
+ 
+ #include <stddef.h>
+ 
++#ifdef __ANDROID__
++#include <pthread.h>
++int shairport_pthread_cancel(pthread_t thread);
++void shairport_pthread_testcancel(void);
++int shairport_pthread_setcancelstate(int state, int *old_state);
++int shairport_pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit);
++#ifndef PTHREAD_CANCEL_DISABLE
++#define PTHREAD_CANCEL_DISABLE 1
++#endif
++#ifndef PTHREAD_EXPLICIT_SCHED
++#define PTHREAD_EXPLICIT_SCHED 1
++#endif
++#define pthread_cancel shairport_pthread_cancel
++#define pthread_testcancel shairport_pthread_testcancel
++#define pthread_setcancelstate shairport_pthread_setcancelstate
++#define pthread_attr_setinheritsched shairport_pthread_attr_setinheritsched
++#endif
++
+ #ifdef __cplusplus
+ #define EXTERNC extern "C"
+ #else
+diff --git a/utilities/network_utilities.c b/utilities/network_utilities.c
+index 5114131..3601b05 100644
+--- a/utilities/network_utilities.c
++++ b/utilities/network_utilities.c
+@@ -42,6 +42,8 @@ int eintr_checked_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+             sockfd, errorstring, EINTR);
+     }
+ 
++    if ((response == -1) && (errno == EINTR))
++      pthread_testcancel(); // Android cancel wake-up
+   } while ((response == -1) && (errno == EINTR));
+   return response;
+ }

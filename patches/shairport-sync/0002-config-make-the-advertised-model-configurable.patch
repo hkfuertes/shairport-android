@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Fri, 25 Sep 2026 09:36:57 +0200
+Subject: [PATCH 2/3] config: make the advertised model configurable
+
+Add general.model (default "ShairportSync"). It is sent as model=/am= in the
+mDNS TXT records and the /info plist, which senders use to choose the device
+icon, e.g. "AudioAccessory5,1" (HomePod mini) or "AirPort10,115" (AirPort
+Express).
+
+Upstream: candidate
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ shairport.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/shairport.c b/shairport.c
+index 8489832..42225e7 100644
+--- a/shairport.c
++++ b/shairport.c
+@@ -641,6 +641,11 @@ int parse_options(int argc, char **argv) {
+       if (config_lookup_non_empty_string(config.cfg, "general.name", &str)) {
+         raw_service_name = (char *)str;
+       }
++      /* Get the advertised model; senders pick the device icon from it. */
++      if (config_lookup_non_empty_string(config.cfg, "general.model", &str)) {
++        free(config.model);
++        config.model = strdup(str);
++      }
+ #ifdef CONFIG_LIBDAEMON
+       /* Get the Daemonize setting. */
+       config_set_lookup_bool(config.cfg, "sessioncontrol.daemonize_with_pid_file", &daemonisewith);

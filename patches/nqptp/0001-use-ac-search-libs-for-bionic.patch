@@ -1,0 +1,17 @@
+Android Bionic exports pthread and clock_gettime from libc and provides neither libpthread nor librt.
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -74,10 +74,10 @@
+ PKG_PROG_PKG_CONFIG
+ 
+ # Checks for libraries.
+-AC_CHECK_LIB([pthread],[pthread_create], , AC_MSG_ERROR(pthread library needed))
++AC_SEARCH_LIBS([pthread_create], [pthread], , AC_MSG_ERROR(pthread library needed))
+ if test "x$build_openbsd" = "xno" ; then
+   # part of libc
+-  AC_CHECK_LIB([rt],[clock_gettime], , AC_MSG_ERROR(librt needed for shared memory library))
++  AC_SEARCH_LIBS([clock_gettime], [rt], , AC_MSG_ERROR(librt needed for shared memory library))
+ fi
+ 
+ # Checks for header files.

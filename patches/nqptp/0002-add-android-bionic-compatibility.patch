@@ -1,0 +1,314 @@
+diff --git a/Makefile.am b/Makefile.am
+index 0594d8e..4cbe907 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1,5 +1,5 @@
+ bin_PROGRAMS = nqptp
+-nqptp_SOURCES = nqptp.c nqptp-clock-sources.c nqptp-message-handlers.c nqptp-utilities.c general-utilities.c debug.c
++nqptp_SOURCES = nqptp.c nqptp-clock-sources.c nqptp-message-handlers.c nqptp-utilities.c general-utilities.c debug.c android-shm-compat.c
+ man_MANS = nqptp.8
+ 
+ AM_CFLAGS = -fno-common -Wall -Wextra -pthread --include=config.h
+diff --git a/android-shm-compat.c b/android-shm-compat.c
+new file mode 100644
+index 0000000..a4f93ee
+--- /dev/null
++++ b/android-shm-compat.c
+@@ -0,0 +1,35 @@
++#include "android-shm-compat.h"
++
++#ifdef __ANDROID__
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++
++#define NQPTP_SHM_DIRECTORY "/dev/shm"
++#define NQPTP_SHM_PATH_MAX 256
++
++static int shm_path(char path[NQPTP_SHM_PATH_MAX], const char *name) {
++  if (name == NULL || name[0] != '/' || name[1] == '\0' || strchr(name + 1, '/') != NULL) {
++    errno = EINVAL;
++    return -1;
++  }
++  int written = snprintf(path, NQPTP_SHM_PATH_MAX, NQPTP_SHM_DIRECTORY "%s", name);
++  if (written < 0 || written >= NQPTP_SHM_PATH_MAX) {
++    errno = ENAMETOOLONG;
++    return -1;
++  }
++  return 0;
++}
++
++int shm_open(const char *name, int oflag, mode_t mode) {
++  char path[NQPTP_SHM_PATH_MAX];
++  return shm_path(path, name) == 0 ? open(path, oflag, mode) : -1;
++}
++
++int shm_unlink(const char *name) {
++  char path[NQPTP_SHM_PATH_MAX];
++  return shm_path(path, name) == 0 ? unlink(path) : -1;
++}
++#endif
+diff --git a/android-shm-compat.h b/android-shm-compat.h
+new file mode 100644
+index 0000000..ef04ef9
+--- /dev/null
++++ b/android-shm-compat.h
+@@ -0,0 +1,11 @@
++#ifndef NQPTP_ANDROID_SHM_COMPAT_H
++#define NQPTP_ANDROID_SHM_COMPAT_H
++
++#ifdef __ANDROID__
++#include <sys/types.h>
++
++int shm_open(const char *name, int oflag, mode_t mode);
++int shm_unlink(const char *name);
++#endif
++
++#endif
+diff --git a/debug.c b/debug.c
+index 62108fd..b1691af 100644
+--- a/debug.c
++++ b/debug.c
+@@ -27,6 +27,19 @@
+ #include <string.h>
+ #include <syslog.h>
+ 
++static void nqptp_setcancelstate(int state, int *old_state) {
++#ifdef __ANDROID__
++#ifndef PTHREAD_CANCEL_DISABLE
++#define PTHREAD_CANCEL_DISABLE 0
++#endif
++  (void)state;
++  if (old_state != NULL)
++    *old_state = 0;
++#else
++  (void)pthread_setcancelstate(state, old_state);
++#endif
++}
++
+ int debuglev = 0;
+ int debugger_show_elapsed_time = 0;
+ int debugger_show_relative_time = 0;
+@@ -92,7 +102,7 @@ char *generate_preliminary_string(char *buffer, size_t buffer_length, double tss
+ 
+ void _die(const char *filename, const int linenumber, const char *format, ...) {
+   int oldState;
+-  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
++  nqptp_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
+   char b[1024];
+   b[0] = 0;
+   char *s;
+@@ -116,13 +126,13 @@ void _die(const char *filename, const int linenumber, const char *format, ...) {
+   va_end(args);
+   // syslog(LOG_ERR, "%s", b);
+   fprintf(stderr, "%s\n", b);
+-  pthread_setcancelstate(oldState, NULL);
++  nqptp_setcancelstate(oldState, NULL);
+   exit(EXIT_FAILURE);
+ }
+ 
+ void _warn(const char *filename, const int linenumber, const char *format, ...) {
+   int oldState;
+-  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
++  nqptp_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
+   char b[1024];
+   b[0] = 0;
+   char *s;
+@@ -146,14 +156,14 @@ void _warn(const char *filename, const int linenumber, const char *format, ...)
+   va_end(args);
+   // syslog(LOG_WARNING, "%s", b);
+   fprintf(stderr, "%s\n", b);
+-  pthread_setcancelstate(oldState, NULL);
++  nqptp_setcancelstate(oldState, NULL);
+ }
+ 
+ void _debug(const char *filename, const int linenumber, int level, const char *format, ...) {
+   if (level > debuglev)
+     return;
+   int oldState;
+-  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
++  nqptp_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
+   char b[1024];
+   b[0] = 0;
+   pthread_mutex_lock(&debug_timing_lock);
+@@ -171,12 +181,12 @@ void _debug(const char *filename, const int linenumber, int level, const char *f
+   va_end(args);
+   // syslog(LOG_DEBUG, "%s", b);
+   fprintf(stderr, "%s\n", b);
+-  pthread_setcancelstate(oldState, NULL);
++  nqptp_setcancelstate(oldState, NULL);
+ }
+ 
+ void _inform(const char *filename, const int linenumber, const char *format, ...) {
+   int oldState;
+-  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
++  nqptp_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldState);
+   char b[1024];
+   b[0] = 0;
+   char *s;
+@@ -199,5 +209,5 @@ void _inform(const char *filename, const int linenumber, const char *format, ...
+   va_end(args);
+   // syslog(LOG_INFO, "%s", b);
+   fprintf(stderr, "%s\n", b);
+-  pthread_setcancelstate(oldState, NULL);
++  nqptp_setcancelstate(oldState, NULL);
+ }
+diff --git a/nqptp-clock-sources.c b/nqptp-clock-sources.c
+index d575b99..8941a3a 100644
+--- a/nqptp-clock-sources.c
++++ b/nqptp-clock-sources.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "nqptp-clock-sources.h"
++#include "android-shm-compat.h"
+ #include "debug.h"
+ #include "general-utilities.h"
+ #include "nqptp-ptp-definitions.h"
+@@ -46,7 +47,7 @@
+ int shm_fd;
+ struct shm_structure *shared_memory;
+ 
+-clock_source_private_data clocks_private[MAX_CLOCKS];
++clock_source_private_data clocks_private[NQPTP_MAX_CLOCKS];
+ client_record clients[MAX_CLIENTS];
+ 
+ /*
+@@ -99,13 +100,13 @@ int get_client_id(char *client_shared_memory_interface_name) {
+           die("failed to set size of shared memory \"%s\".", client_shared_memory_interface_name);
+         }
+ 
+-#ifdef CONFIG_FOR_FREEBSD
++#if defined(CONFIG_FOR_FREEBSD) || defined(__ANDROID__)
+         clients[i].shared_memory =
+             (struct shm_structure *)mmap(NULL, sizeof(struct shm_structure), PROT_READ | PROT_WRITE,
+                                          MAP_SHARED, clients[i].shm_fd, 0);
+ #endif
+ 
+-#ifdef CONFIG_FOR_LINUX
++#if defined(CONFIG_FOR_LINUX) && !defined(__ANDROID__)
+         clients[i].shared_memory =
+             (struct shm_structure *)mmap(NULL, sizeof(struct shm_structure), PROT_READ | PROT_WRITE,
+                                          MAP_LOCKED | MAP_SHARED, clients[i].shm_fd, 0);
+@@ -123,7 +124,7 @@ int get_client_id(char *client_shared_memory_interface_name) {
+         memset(clients[i].shared_memory, 0, sizeof(struct shm_structure));
+         clients[i].shared_memory->version = NQPTP_SHM_STRUCTURES_VERSION;
+ 
+-        // for (i = 0; i < MAX_CLOCKS; i++) {
++        // for (i = 0; i < NQPTP_MAX_CLOCKS; i++) {
+         //  clocks_private[i].client_flags[response] =
+         //      0; // turn off all client flags in every clock for this client
+         // }
+@@ -173,7 +174,7 @@ int find_clock_source_record(char *sender_string, clock_source_private_data *clo
+   int response = -1;
+   int i = 0;
+   int found = 0;
+-  while ((found == 0) && (i < MAX_CLOCKS)) {
++  while ((found == 0) && (i < NQPTP_MAX_CLOCKS)) {
+     if (((clocks_private_info[i].flags & (1 << clock_is_in_use)) != 0) &&
+         (strcasecmp(sender_string, (const char *)&clocks_private_info[i].ip) == 0))
+       found = 1;
+@@ -192,7 +193,7 @@ int create_clock_source_record(char *sender_string,
+   int response = -1;
+   int i = 0;
+   int found = 0; // trying to find an unused entry
+-  while ((found == 0) && (i < MAX_CLOCKS)) {
++  while ((found == 0) && (i < NQPTP_MAX_CLOCKS)) {
+     if ((clocks_private_info[i].flags & (1 << clock_is_in_use)) == 0)
+       found = 1;
+     else
+diff --git a/nqptp-clock-sources.h b/nqptp-clock-sources.h
+index 110b1ec..ff5ab2a 100644
+--- a/nqptp-clock-sources.h
++++ b/nqptp-clock-sources.h
+@@ -82,7 +82,7 @@ const char *get_client_name(int client_id);
+ int delete_client(int client_id);
+ int delete_clients();
+ 
+-extern clock_source_private_data clocks_private[MAX_CLOCKS];
++extern clock_source_private_data clocks_private[NQPTP_MAX_CLOCKS];
+ 
+ void update_master_clock_info(uint64_t master_clock_id, const char *ip, uint64_t local_time,
+                               uint64_t local_to_master_offset, uint64_t mastership_start_time);
+diff --git a/nqptp-message-handlers.c b/nqptp-message-handlers.c
+index 6371ab6..f67d0d3 100644
+--- a/nqptp-message-handlers.c
++++ b/nqptp-message-handlers.c
+@@ -128,7 +128,7 @@ void handle_control_port_messages(char *buf, ssize_t recv_len,
+             debug(2, "Clear timing peer group.");
+             // dirty experimental hack -- delete all the clocks
+             int gc;
+-            for (gc = 0; gc < MAX_CLOCKS; gc++) {
++            for (gc = 0; gc < NQPTP_MAX_CLOCKS; gc++) {
+               memset(&clock_private_info[gc], 0, sizeof(clock_source_private_data));
+             }
+             update_master_clock_info(0, NULL, 0, 0, 0); // the SMI may have obsolete stuff in it
+@@ -136,7 +136,7 @@ void handle_control_port_messages(char *buf, ssize_t recv_len,
+             debug(2, "Start Timing");
+             // dirty experimental hack -- delete all the clocks
+             int gc;
+-            for (gc = 0; gc < MAX_CLOCKS; gc++) {
++            for (gc = 0; gc < NQPTP_MAX_CLOCKS; gc++) {
+               memset(&clock_private_info[gc], 0, sizeof(clock_source_private_data));
+             }
+             debug(2, "get or create new record for \"%s\".", smi_name);
+@@ -144,7 +144,7 @@ void handle_control_port_messages(char *buf, ssize_t recv_len,
+             //        if (client_id != -1) {
+             if (strcmp(command, "T") == 0) {
+               int i;
+-              for (i = 0; i < MAX_CLOCKS; i++) {
++              for (i = 0; i < NQPTP_MAX_CLOCKS; i++) {
+                 clock_private_info[i].announcements_without_followups =
+                     0; // to allow a possibly silent clock to be revisited when added to a timing
+                        // peer list
+diff --git a/nqptp.c b/nqptp.c
+index 34a72da..270f4cf 100644
+--- a/nqptp.c
++++ b/nqptp.c
+@@ -17,6 +17,7 @@
+  * Commercial licensing is also available.
+  */
+ #include "nqptp.h"
++#include "android-shm-compat.h"
+ #include "config.h"
+ #include "debug.h"
+ #include "general-utilities.h"
+@@ -250,12 +251,12 @@ int main(int argc, char **argv) {
+     die("failed to set size of shared memory \"%s\".", NQPTP_INTERFACE_NAME);
+   }
+ 
+-#if defined(CONFIG_FOR_FREEBSD) || defined(CONFIG_FOR_OPENBSD)
++#if defined(CONFIG_FOR_FREEBSD) || defined(CONFIG_FOR_OPENBSD) || defined(__ANDROID__)
+   shared_memory = (struct shm_structure *)mmap(NULL, sizeof(struct shm_structure),
+                                                PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+ #endif
+ 
+-#ifdef CONFIG_FOR_LINUX
++#if defined(CONFIG_FOR_LINUX) && !defined(__ANDROID__)
+   shared_memory =
+       (struct shm_structure *)mmap(NULL, sizeof(struct shm_structure), PROT_READ | PROT_WRITE,
+                                    MAP_LOCKED | MAP_SHARED, shm_fd, 0);
+@@ -539,7 +540,7 @@ void send_awakening_announcement_sequence(const uint64_t clock_id, const char *c
+ uint64_t broadcasting_task(uint64_t call_time, __attribute__((unused)) void *private_data) {
+   clock_source_private_data *clocks_private = (clock_source_private_data *)private_data;
+   int i;
+-  for (i = 0; i < MAX_CLOCKS; i++) {
++  for (i = 0; i < NQPTP_MAX_CLOCKS; i++) {
+ 
+     /*
+         int is_a_master = 0;
+diff --git a/nqptp.h b/nqptp.h
+index f26516f..dccb3d8 100644
+--- a/nqptp.h
++++ b/nqptp.h
+@@ -25,7 +25,7 @@
+ 
+ #include "nqptp-shm-structures.h"
+ 
+-#define MAX_CLOCKS 64
++#define NQPTP_MAX_CLOCKS 64
+ #define MAX_CLIENTS 16
+ #define MAX_OPEN_SOCKETS 16
+ 

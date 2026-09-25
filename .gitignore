@@ -1,0 +1,7 @@
+/third_party/
+/build/
+/.cxx/
+/.gradle/
+/local.properties
+*.apk
+*.aab
