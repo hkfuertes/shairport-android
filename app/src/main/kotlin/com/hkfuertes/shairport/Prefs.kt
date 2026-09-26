@@ -30,8 +30,16 @@ object Prefs {
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */
     fun choices(context: Context): Map<String, List<String>> = mapOf(
+        MODEL to context.resources.getStringArray(R.array.model_values).toList(),
         AUDIO_OUTPUT to context.resources.getStringArray(R.array.audio_output_values).toList(),
         PLAYBACK_MODE to context.resources.getStringArray(R.array.playback_mode_values).toList(),
+    )
+
+    /** Human names of [choices], in the same order (what the settings screen shows). */
+    fun labels(context: Context): Map<String, List<String>> = mapOf(
+        MODEL to context.resources.getStringArray(R.array.model_entries).toList(),
+        AUDIO_OUTPUT to context.resources.getStringArray(R.array.audio_output_entries).toList(),
+        PLAYBACK_MODE to context.resources.getStringArray(R.array.playback_mode_entries).toList(),
     )
 
     /** The app's preferences, with defaults stored for unset keys so every reader agrees. */

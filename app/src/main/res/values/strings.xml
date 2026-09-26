@@ -13,7 +13,6 @@
     <string name="server_name_title">Advertised name</string>
     <string name="server_name_summary">Name visible to AirPlay senders.</string>
     <string name="model_title">Advertised model</string>
-    <string name="model_summary">Model included in the AirPlay registration.</string>
     <string name="interface_title">Wi-Fi interface</string>
     <string name="interface_summary">Usually wlan0.</string>
     <string name="port_title">AirPlay port</string>

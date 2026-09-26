@@ -194,3 +194,18 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - Verified with a Magisk service.d script across a reboot: first engine exits (no IP),
   Wi-Fi arrives 3 s later -> restart -> advertised, TCP :7000 OK. README "Headless setup"
   commands executed verbatim. Script removed from the POCO afterwards (opt-in via README).
+
+## 2026-09-26 (day) — branch feat/model-icons
+
+- Icons from the user's IPSW/CoreTypes extraction (~/airplay-model-icons.zip: SF Symbols, black
+  on transparent). Generated res/drawable-nodpi PNGs (cropped, square, 144 px; glyph 192 px).
+- Advertised model is now a list with icons (ModelPreference: ListPreference dialog, rows tinted
+  with the text colour): Generic=ShairportSync, AirPort Express=AirPort10,115 (no icons, as
+  asked), HomePod=AudioAccessory1,1 (default), HomePod mini=AudioAccessory5,1, Apple TV 4K=
+  AppleTV14,1, iMac21,1, MacBookPro18,1, Macmini9,1, Mac13,1, MacPro7,1. iPad/AirPort
+  Extreme/Time Capsule left out: not AirPlay receivers.
+- adb: list settings accept the value or its label (case-insensitive); LIST shows labels.
+  Found: `adb shell ... --es value 'Kitchen speaker'` arrives split on the device (adb re-joins
+  args into one command string) -> README now uses "'...'". Same bug in the upstream PR #46 README.
+- Launcher: adaptive icon (white background, glyph inset 28%) + legacy 192 px for API 25;
+  notification small icon = the glyph (status icons use alpha only). All verified on screen.

@@ -385,7 +385,7 @@ class ReceiverService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_airplay_audio) // alpha-only glyph, as status icons need
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(openApp)

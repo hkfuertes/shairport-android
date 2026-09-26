@@ -18,9 +18,11 @@
             android:key="server_name"
             android:summary="@string/server_name_summary"
             android:title="@string/server_name_title" />
-        <EditTextPreference
+        <com.hkfuertes.shairport.ModelPreference
+            android:entries="@array/model_entries"
+            android:entryValues="@array/model_values"
             android:key="model"
-            android:summary="@string/model_summary"
+            android:summary="%s"
             android:title="@string/model_title" />
         <EditTextPreference
             android:key="network_interface"
