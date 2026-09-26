@@ -231,3 +231,14 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   Advanced category removed from / re-added to the screen (framework preferences have no
   setVisible), explicit android:order keeps its place; root enabling also applied while hidden.
   Verified on screen: collapsed, expanded (enabled, before "Fixed engine"), collapsed again.
+
+## 2026-09-26 (day) — branch feat/status-and-toggle
+
+- Toggle renamed "AirPlay receiver" (start/stop of NQPTP + Shairport Sync + its TinySVCmDNS
+  advertisement; mDNS is NOT Android's NSD). "Fixed engine" row removed.
+- EngineStatus (in-process): supervisor prints `@status nqptp|shairport up|down` markers
+  (applied only for the current engine), Wi-Fi address at start, Shairport metadata
+  snam/pbeg/pend/disc -> "Playing from <sender>". Status rows disabled (read-only) at the very
+  end, after Permissions (root access, moved last). Category headers are never disabled now.
+- Verified on screen: all Running/Advertising/Idle; simulated snam+pbeg -> "Playing from
+  HK15P"; toggle off -> Stopped/Not advertising and no processes; toggle on -> Running.

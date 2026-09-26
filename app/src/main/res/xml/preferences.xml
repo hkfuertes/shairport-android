@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Explicit orders keep the Advanced category in place when MainActivity re-adds it. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
-    <Preference
-        android:key="root_access"
-        android:order="0"
-        android:persistent="false"
-        android:summary="@string/root_access_checking"
-        android:title="@string/root_access_title" />
-
     <PreferenceCategory
-        android:order="1"
+        android:order="0"
         android:title="@string/receiver_category">
         <SwitchPreference
             android:key="receiver_enabled"
@@ -66,10 +59,42 @@
 
     <PreferenceCategory
         android:order="4"
-        android:title="@string/fixed_category">
+        android:title="@string/permissions_category">
         <Preference
+            android:key="root_access"
+            android:persistent="false"
+            android:summary="@string/root_access_checking"
+            android:title="@string/root_access_title" />
+    </PreferenceCategory>
+
+    <!-- Live state of each part (MainActivity, from EngineStatus): read-only, shown disabled. -->
+    <PreferenceCategory
+        android:key="status"
+        android:order="5"
+        android:title="@string/status_category">
+        <Preference
+            android:key="status_shairport"
+            android:enabled="false"
+            android:persistent="false"
             android:selectable="false"
-            android:summary="@string/fixed_engine_summary"
-            android:title="@string/fixed_engine_title" />
+            android:title="@string/status_shairport_title" />
+        <Preference
+            android:key="status_nqptp"
+            android:enabled="false"
+            android:persistent="false"
+            android:selectable="false"
+            android:title="@string/status_nqptp_title" />
+        <Preference
+            android:key="status_mdns"
+            android:enabled="false"
+            android:persistent="false"
+            android:selectable="false"
+            android:title="@string/status_mdns_title" />
+        <Preference
+            android:key="status_playback"
+            android:enabled="false"
+            android:persistent="false"
+            android:selectable="false"
+            android:title="@string/status_playback_title" />
     </PreferenceCategory>
 </PreferenceScreen>
