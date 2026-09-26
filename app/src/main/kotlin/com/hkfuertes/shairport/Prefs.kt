@@ -10,20 +10,22 @@ import android.provider.Settings
 @Suppress("DEPRECATION") // framework PreferenceManager, like the classic settings screen
 object Prefs {
     const val RECEIVER_ENABLED = "receiver_enabled"
+    /** AirPlay 2 (multi-room) needs NQPTP, which needs root; off means classic AirPlay. */
+    const val AIRPLAY_2 = "airplay_2"
     const val SERVER_NAME = "server_name"
     const val MODEL = "model"
-    const val NETWORK_INTERFACE = "network_interface"
-    const val PORT = "port"
     const val START_AT_BOOT = "start_at_boot"
     const val PLAYBACK_MODE = "playback_mode"
+
+    /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
+    const val GENERIC_MODEL = "ShairportSync"
 
     /** Typed as the settings screen stores them (EditTextPreference keeps Strings). */
     fun defaults(context: Context): Map<String, Any> = mapOf(
         RECEIVER_ENABLED to true,
+        AIRPLAY_2 to false,
         SERVER_NAME to deviceName(context),
         MODEL to "AudioAccessory1,1",
-        NETWORK_INTERFACE to "wlan0",
-        PORT to "7000",
         START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
     )
@@ -61,5 +63,16 @@ object Prefs {
             ?: if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL
             else "${Build.MANUFACTURER} ${Build.MODEL}"
 
-    fun isValidPort(value: String) = value.toIntOrNull()?.let { it in 1..65535 } == true
+    /**
+     * Shairport's `airplay_device_id` (48 bits, like a MAC): apps can't read the Wi-Fi MAC. Derived
+     * from ANDROID_ID (stable per device, user and signing key), so senders keep recognising us.
+     */
+    fun deviceId(context: Context): String {
+        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        val bits = androidId?.toULongOrNull(16)?.toLong() ?: androidId.hashCode().toLong()
+        return "0x%012XL".format(macLike(bits))
+    }
+
+    /** Low 48 bits as a locally administered unicast address (like Android's random MACs). */
+    fun macLike(bits: Long): Long = (bits and 0xFFFF_FFFF_FFFFL or (0x02L shl 40)) and (0x01L shl 40).inv()
 }

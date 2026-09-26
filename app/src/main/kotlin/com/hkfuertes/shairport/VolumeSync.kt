@@ -12,7 +12,7 @@ import kotlin.math.roundToInt
 /**
  * Shairport's metadata over loopback UDP ([port]). Sender -> Android volume: Shairport runs with
  * ignore_volume_control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC. Play state (`snam`,
- * `pbeg`, `pend`, `disc`) goes to [EngineStatus].
+ * `pbeg`, `pend`, `disc`) and the track (`core` `minm`, `asar`, `asal`) go to [EngineStatus].
  *
  * ponytail: one-way on purpose. Android -> sender is left out until Shairport's AirPlay 2 remote
  * volume reaches a stable release (it is only in development, and multi-room gets it wrong).
@@ -41,14 +41,17 @@ class VolumeSync(context: Context) {
             } catch (_: IOException) {
                 return // closed
             }
-            if (packet.length < 8 || String(buffer, 0, 4, Charsets.US_ASCII) != "ssnc") continue
+            if (packet.length < 8) continue
+            val code = String(buffer, 4, 4, Charsets.US_ASCII)
             val data = String(buffer, 8, packet.length - 8, Charsets.UTF_8)
-            when (String(buffer, 4, 4, Charsets.US_ASCII)) {
-                "pvol" -> data.substringBefore(',').toDoubleOrNull()?.let(::applySenderVolume)
-                // Play state for the settings screen's status section.
-                "snam" -> EngineStatus.senderName(data)
-                "pbeg" -> EngineStatus.playing(true)
-                "pend", "disc" -> EngineStatus.playing(false)
+            when (String(buffer, 0, 4, Charsets.US_ASCII) + "/" + code) {
+                "ssnc/pvol" -> data.substringBefore(',').toDoubleOrNull()?.let(::applySenderVolume)
+                // Play state and track for the status (settings screen, GET_STATUS).
+                "ssnc/snam" -> EngineStatus.senderName(data)
+                "ssnc/pbeg" -> EngineStatus.playing(true)
+                "ssnc/pend", "ssnc/disc" -> EngineStatus.playing(false)
+                "ssnc/mdst" -> EngineStatus.newTrack()
+                "core/minm", "core/asar", "core/asal" -> EngineStatus.track(code, data)
             }
         }
     }

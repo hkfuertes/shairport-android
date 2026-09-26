@@ -5,6 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.media.AudioManager
+import android.net.Uri
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,7 +29,44 @@ class SettingsReceiver : BroadcastReceiver() {
                 }
             }
             ACTION_LIST -> publish(list(context, preferences), "Settings")
+            ACTION_STATUS -> { // polled by the Kiosk Satellite plugin: no log line per call
+                setResultCode(Activity.RESULT_OK)
+                setResultData(status(context, preferences))
+            }
         }
+    }
+
+    /**
+     * One URL-encoded line (key=value&...): state (off, idle or playing), mode (airplay2 or
+     * classic, while advertised), source, title, artist, album, address, volume (music stream, %)
+     * and every setting's current value.
+     */
+    private fun status(context: Context, preferences: SharedPreferences): String {
+        val audio = context.getSystemService(AudioManager::class.java)
+        val volume = audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 /
+            audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val query = Uri.Builder()
+            .appendQueryParameter(
+                "state",
+                when {
+                    !EngineStatus.shairport -> "off"
+                    EngineStatus.source != null -> "playing"
+                    else -> "idle"
+                },
+            )
+            .appendQueryParameter("volume", volume.toString())
+        mapOf(
+            "source" to EngineStatus.source,
+            "title" to EngineStatus.title,
+            "artist" to EngineStatus.artist,
+            "album" to EngineStatus.album,
+            "address" to EngineStatus.address,
+            "mode" to if (!EngineStatus.advertising) null else if (EngineStatus.airplay2) "airplay2" else "classic",
+        ).forEach { (key, value) -> if (value != null) query.appendQueryParameter(key, value) }
+        Prefs.defaults(context).forEach { (key, default) ->
+            query.appendQueryParameter(key, (preferences.all[key] ?: default).toString())
+        }
+        return query.build().encodedQuery.orEmpty()
     }
 
     private fun publish(result: Result<String>, successLabel: String) {
@@ -54,7 +93,6 @@ class SettingsReceiver : BroadcastReceiver() {
             require(value::class == default::class) {
                 "$key expects ${typeName(default)}; got ${typeName(value)}"
             }
-            if (key == Prefs.PORT) require(Prefs.isValidPort(value as String)) { "port must be 1-65535" }
             // List settings take the value or its human label ("HomePod mini" = AudioAccessory5,1).
             val stored: Any = Prefs.choices(context)[key]?.let { allowed ->
                 val labels = Prefs.labels(context).getValue(key)
@@ -93,6 +131,7 @@ class SettingsReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_CONFIGURE = "com.hkfuertes.shairport.CONFIGURE_SETTINGS"
         const val ACTION_LIST = "com.hkfuertes.shairport.LIST_SETTINGS"
+        const val ACTION_STATUS = "com.hkfuertes.shairport.GET_STATUS"
         const val EXTRA_KEY = "key"
         const val EXTRA_VALUE = "value"
         private const val TAG = "Shairport"

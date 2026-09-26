@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.preference.Preference
 import android.preference.PreferenceCategory
-import android.preference.PreferenceGroup
+import android.preference.SwitchPreference
 import android.widget.Toast
 import java.util.concurrent.TimeUnit
 
@@ -16,12 +16,8 @@ import java.util.concurrent.TimeUnit
 class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var preferences: SharedPreferences
     private lateinit var rootPreference: Preference
-    private lateinit var advanced: PreferenceCategory
-    private lateinit var showAdvanced: Preference
-    private var advancedShown = false
     private lateinit var statusCategory: PreferenceCategory
     private val statusListener: () -> Unit = { runOnUiThread(::refreshStatus) }
-    private var rootGranted = false
     private enum class Root { GRANTED, DENIED, MISSING }
     private var rootCheckRunning = false
 
@@ -32,28 +28,25 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         preferences.registerOnSharedPreferenceChangeListener(this)
         rootPreference = findPreference(PREF_ROOT_ACCESS)
         rootPreference.setOnPreferenceClickListener {
-            requestRoot()
+            checkRoot()
             true
         }
-        statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
-        advanced = findPreference(PREF_ADVANCED) as PreferenceCategory
-        advanced.findPreference(Prefs.PORT).setOnPreferenceChangeListener { _, value ->
-            if (Prefs.isValidPort(value.toString())) {
-                true
-            } else {
-                Toast.makeText(this, R.string.invalid_port, Toast.LENGTH_SHORT).show()
+        // Only these need root: their switches turn on once su is granted (Magisk may prompt).
+        for (key in ROOT_FEATURES) {
+            findPreference(key).setOnPreferenceChangeListener { preference, value ->
+                if (value != true) return@setOnPreferenceChangeListener true
+                checkRoot { (preference as SwitchPreference).isChecked = true }
                 false
             }
         }
-        showAdvanced = findPreference(PREF_SHOW_ADVANCED)
-        showAdvanced.setOnPreferenceClickListener {
-            setAdvancedShown(!advancedShown)
-            true
-        }
-        setAdvancedShown(false)
+        statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
+        refreshModel()
 
-        setProtectedPreferencesEnabled(false)
-        requestRoot()
+        requestNotificationPermission()
+        if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
+        // Asking su without need would make Magisk prompt users who never wanted root features.
+        if (ROOT_FEATURES.any { preferences.getBoolean(it, false) }) checkRoot()
+        else rootPreference.setSummary(R.string.root_access_not_requested)
     }
 
     override fun onResume() {
@@ -75,16 +68,32 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun refreshStatus() {
         if (isFinishing || isDestroyed) return
         fun summary(key: String, text: String) { statusCategory.findPreference(key).summary = text }
-        fun state(running: Boolean) = getString(if (running) R.string.status_running else R.string.status_stopped)
-        summary("status_shairport", state(EngineStatus.shairport))
-        summary("status_nqptp", state(EngineStatus.nqptp))
-        val address = EngineStatus.address
+        summary(
+            "status_shairport",
+            getString(
+                when {
+                    !EngineStatus.shairport -> R.string.status_stopped
+                    EngineStatus.airplay2 -> R.string.status_running_airplay2
+                    else -> R.string.status_running_classic
+                },
+            ),
+        )
+        summary(
+            "status_nqptp",
+            getString(
+                when {
+                    !preferences.getBoolean(Prefs.AIRPLAY_2, false) -> R.string.status_nqptp_off
+                    EngineStatus.nqptp -> R.string.status_running
+                    else -> R.string.status_stopped
+                },
+            ),
+        )
         summary(
             "status_mdns",
-            if (EngineStatus.shairport && address != null) {
+            if (EngineStatus.shairport && EngineStatus.advertising) {
                 val name = preferences.getString(Prefs.SERVER_NAME, null)?.takeIf { it.isNotBlank() }
                     ?: Prefs.deviceName(this)
-                getString(R.string.status_advertising, name, address)
+                getString(R.string.status_advertising, name, EngineStatus.address ?: getString(R.string.status_no_wifi))
             } else {
                 getString(R.string.status_not_advertising)
             },
@@ -97,41 +106,37 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
-        if (key == Prefs.START_AT_BOOT) {
-            Thread({ BootScript.sync(this) }, "boot-script").start()
-            return
-        }
-        if (key != Prefs.RECEIVER_ENABLED) return
-        val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
-        // The tile or the notification's "Stop" may change it while this screen is open.
-        (findPreference(Prefs.RECEIVER_ENABLED) as android.preference.SwitchPreference).isChecked = enabled
-        if (rootGranted && enabled) {
-            ReceiverService.start(this)
-        } else {
-            ReceiverService.stop(this)
+        when (key) {
+            Prefs.START_AT_BOOT -> Thread({ BootScript.sync(this) }, "boot-script").start()
+            Prefs.AIRPLAY_2 -> {
+                refreshModel()
+                refreshStatus()
+            }
+            Prefs.RECEIVER_ENABLED -> {
+                val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
+                // The tile or the notification's "Stop" may change it while this screen is open.
+                (findPreference(Prefs.RECEIVER_ENABLED) as SwitchPreference).isChecked = enabled
+                if (enabled) ReceiverService.start(this) else ReceiverService.stop(this)
+            }
         }
     }
 
-    private fun requestRoot() {
+    /** Asks for su (Magisk prompts if it has no saved answer); [onGranted] runs if granted. */
+    private fun checkRoot(onGranted: (() -> Unit)? = null) {
         if (rootCheckRunning) return
-
         rootCheckRunning = true
         rootPreference.isEnabled = false
         rootPreference.setSummary(R.string.root_access_checking)
-        setProtectedPreferencesEnabled(false)
         Thread({
             val root = rootStatus()
-            runOnUiThread { applyRootResult(root) }
+            runOnUiThread { applyRootResult(root, onGranted) }
         }, "root-check").start()
     }
 
-    private fun applyRootResult(root: Root) {
+    private fun applyRootResult(root: Root, onGranted: (() -> Unit)?) {
         if (isFinishing || isDestroyed) return
-
         rootCheckRunning = false
-        val granted = root == Root.GRANTED
-        rootGranted = granted
-        rootPreference.isEnabled = !granted // nothing left to request once root is granted
+        rootPreference.isEnabled = root != Root.GRANTED // nothing left to request once granted
         rootPreference.setSummary(
             when (root) {
                 Root.GRANTED -> R.string.root_access_granted
@@ -139,42 +144,16 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
                 Root.MISSING -> R.string.root_access_missing
             },
         )
-        setProtectedPreferencesEnabled(granted)
-
-        if (granted) {
-            requestNotificationPermission()
-            if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) {
-                ReceiverService.start(this)
-            }
-        } else {
-            ReceiverService.stop(this)
-        }
+        if (root == Root.GRANTED) onGranted?.invoke()
+        else if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
     }
 
-    /** Framework preferences can't be hidden, so the Advanced category is removed and re-added. */
-    private fun setAdvancedShown(shown: Boolean) {
-        advancedShown = shown
-        if (shown) preferenceScreen.addPreference(advanced) else preferenceScreen.removePreference(advanced)
-        showAdvanced.setTitle(if (shown) R.string.hide_advanced else R.string.show_advanced)
-    }
-
-    private fun setProtectedPreferencesEnabled(enabled: Boolean) {
-        val screen = preferenceScreen
-        for (i in 0 until screen.preferenceCount) {
-            val preference = screen.getPreference(i)
-            if (preference !== statusCategory) setPreferenceEnabled(preference, enabled) // info only
-        }
-        if (!advancedShown) setPreferenceEnabled(advanced, enabled) // off-screen, but kept in step
-    }
-
-    /** Rows only: category headers stay as they are (Permissions holds the root row). */
-    private fun setPreferenceEnabled(preference: Preference, enabled: Boolean) {
-        if (preference is PreferenceGroup) {
-            for (i in 0 until preference.preferenceCount) {
-                setPreferenceEnabled(preference.getPreference(i), enabled)
-            }
-        } else if (preference !== rootPreference) {
-            preference.isEnabled = enabled
+    /** Classic AirPlay advertises the generic model (ReceiverService); the choice is AirPlay 2's. */
+    private fun refreshModel() {
+        val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
+        findPreference(Prefs.MODEL).apply {
+            isEnabled = airplay2
+            summary = if (airplay2) "%s" else getString(R.string.model_classic_summary)
         }
     }
 
@@ -213,9 +192,8 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
-        private const val PREF_ADVANCED = "advanced"
         private const val PREF_STATUS = "status"
-        private const val PREF_SHOW_ADVANCED = "show_advanced"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
+        private val ROOT_FEATURES = listOf(Prefs.AIRPLAY_2, Prefs.START_AT_BOOT)
     }
 }

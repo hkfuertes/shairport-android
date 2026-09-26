@@ -3,7 +3,7 @@ From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 Date: Fri, 25 Sep 2026 09:16:39 +0200
 Subject: [PATCH 2/3] android: cooperative pthread cancellation for bionic
 
-Android lacks pthread_cancel. Provide a SIGUSR1 cooperative shim and add
+Android lacks pthread_cancel. Provide a SIGRTMIN cooperative shim and add
 explicit cancellation checks where glibc would have cancellation points:
 the AP2 control/realtime receivers (poll, 250 ms ceiling), the event
 receiver (accept and idle loop), and the buffered-audio processor and TCP
@@ -87,15 +87,15 @@ index f041c22..b55d8fd 100644
 +  memset(&action, 0, sizeof(action));
 +  action.sa_handler = android_cancel_handler;
 +  sigemptyset(&action.sa_mask);
-+  sigaction(SIGUSR1, &action, NULL);
++  sigaction(SIGRTMIN, &action, NULL);
 +}
 +
 +int shairport_pthread_cancel(pthread_t thread) {
-+  // ponytail: cooperative SIGUSR1 cancellation; use native Bionic cancellation if it becomes available.
++  // ponytail: cooperative SIGRTMIN cancellation; use native Bionic cancellation if it becomes available.
 +  int rc = pthread_once(&android_cancel_once, android_cancel_init);
 +  if (rc)
 +    return rc;
-+  return pthread_kill(thread, SIGUSR1);
++  return pthread_kill(thread, SIGRTMIN);
 +}
 +
 +void shairport_pthread_testcancel(void) {
@@ -141,7 +141,7 @@ index ec71896..94dcbbb 100644
 +// request wait indefinitely for a silent AP2 socket to receive another packet.
 +static int android_wait_for_ap2_packet(int socket_fd) {
 +  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
-+  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
++  // EINTR is the SIGRTMIN cancel wake-up: test it now instead of polling again.
 +  int rc = poll(&poll_fd, 1, 250);
 +  pthread_testcancel();
 +  return rc > 0;

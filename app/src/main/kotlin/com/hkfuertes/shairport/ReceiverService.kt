@@ -1,63 +1,71 @@
 package com.hkfuertes.shairport
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.SharedPreferences
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
-import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.Messenger
 import android.os.SystemClock
 import android.util.Log
 import java.io.File
-import java.io.InputStream
+import java.io.IOException
 import java.net.Inet4Address
-import java.util.concurrent.ExecutorService
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
+/**
+ * The receiver: a foreground service in the app process that runs Shairport Sync in the :engine
+ * process (EngineService, bound while it runs) and, with AirPlay 2 on, NQPTP through su.
+ */
 class ReceiverService : Service() {
-    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var volumeSync: VolumeSync
-    @Volatile private var engine: Process? = null
+    @Volatile private var engine: ServiceConnection? = null
     private var engineConfig: String? = null
+    /** Root watcher running NQPTP; closing its stdin stops it. */
+    private var nqptp: Process? = null
+    /** Worker tasks queued before onDestroy must not start an engine afterwards. */
+    @Volatile private var destroyed = false
 
-    /** Wi-Fi IPv4 the running engine started with (null: none, or Wi-Fi was lost since). */
-    @Volatile private var engineAddress: String? = null
+    private val engineMessages = Messenger(Handler(Looper.getMainLooper()) { message ->
+        if (message.what == EngineService.MSG_ADVERTISED) EngineStatus.advertised(message.arg1 != 0, message.arg2 != 0)
+        true
+    })
 
-    /**
-     * TinySVCmDNS advertises the address Shairport started with, so an engine started without
-     * Wi-Fi (e.g. at boot), a new address, or a reconnect after losing Wi-Fi needs a fresh one.
-     */
+    /** NsdManager follows address changes by itself; the status shows the current address. */
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
             val ipv4 = properties.linkAddresses.firstOrNull { it.address is Inet4Address }
                 ?.address?.hostAddress ?: return
-            if (ipv4 == engineAddress) return
+            if (ipv4 == EngineStatus.address) return
             // After a reconnect the POCO filters multicast again although the lock is held;
             // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
             multicastLock?.run {
                 release()
                 acquire()
             }
-            onWorker { restartEngine() }
+            EngineStatus.wifiAddress(ipv4)
         }
 
-        override fun onLost(network: Network) {
-            engineAddress = null // the next address, even the same one, needs a fresh engine
-        }
+        override fun onLost(network: Network) = EngineStatus.wifiAddress(null)
     }
 
     /** Applies setting changes from any source (settings screen or adb's SettingsReceiver). */
@@ -70,8 +78,9 @@ class ReceiverService : Service() {
         super.onCreate()
         Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
         createNotificationChannel()
-        acquireMulticastLock()
+        acquireWifiLocks()
         volumeSync = VolumeSync(this).also { it.start() }
+        EngineStatus.wifiAddress(wifiAddress())
         getSystemService(ConnectivityManager::class.java).registerNetworkCallback(
             NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(),
             wifiCallback,
@@ -92,245 +101,189 @@ class ReceiverService : Service() {
     override fun onDestroy() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(wifiCallback) }
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        // Unbind now (a destroyed service can't later); the waiting goes to the worker.
+        destroyed = true
+        engine?.let { runCatching { unbindService(it) } }
+        engine = null
+        val watcher = nqptp
         onWorker {
-            stopEngine()
-            // ponytail: after a crash/force-stop this stays on until the next normal stop.
-            runCatching { ProcessBuilder("su", "-c", "cmd wifi force-hi-perf-mode disabled").start() }
+            EngineStatus.engineStopped()
+            awaitEngineExit()
+            stopNqptp(watcher)
         }
-        worker.shutdown()
         volumeSync.stop()
         multicastLock?.takeIf { it.isHeld }?.release()
+        wifiLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    /** Late callbacks (network, engine exit) may arrive after onDestroy shut the worker down. */
-    private fun onWorker(task: () -> Unit) {
-        runCatching { worker.execute(task) }
-    }
-
-    private fun restartEngine() {
-        val address = wifiAddress()
-        if (engine != null && engineAddress != null && engineAddress == address) return
-        Log.i(TAG, "Wi-Fi address is now $address; restarting the engine")
-        engineConfig = null
-        startEngine()
-    }
-
-    @Suppress("DEPRECATION") // allNetworks: simplest way to read the current Wi-Fi address once
-    private fun wifiAddress(): String? {
-        val connectivity = getSystemService(ConnectivityManager::class.java)
-        return connectivity.allNetworks.firstNotNullOfOrNull { network ->
-            if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) null
-            else connectivity.getLinkProperties(network)?.linkAddresses
-                ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress
-        }
-    }
-
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
+        if (destroyed) return
         val preferences = Prefs.get(this)
         val name = value(preferences, Prefs.SERVER_NAME)
-        val aaudio = AAUDIO_AVAILABLE // AudioTrack pipe only where AAudio doesn't exist (Android 7)
-        val config = config(preferences, name, aaudio)
+        val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
+        val config = config(preferences, name, airplay2)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
         stopEngine()
-        val files = getExternalFilesDir(null)
-        if (files == null) {
-            notifyForeground(getString(R.string.notification_storage_error))
-            return
-        }
+        awaitEngineExit() // also one left by a previous instance of this service
+        val configFile = File(filesDir, CONFIG_FILE)
+        val shm = getExternalFilesDir(null)?.let { File(it, SHM_DIRECTORY) }
         try {
-            File(files, SHM_DIRECTORY).mkdirs()
-            File(files, CONFIG_FILE).writeText(config)
+            configFile.writeText(config)
+            shm?.mkdirs()
         } catch (error: Exception) {
             Log.e(TAG, "Could not write Shairport configuration", error)
             notifyForeground(getString(R.string.notification_config_error))
             return
         }
+        // Shairport looks for NQPTP once, when it starts ("auto": classic AirPlay without it).
+        if (airplay2 && shm != null) nqptp = startNqptp()
 
-        engineAddress = wifiAddress()
-        EngineStatus.engineStarting(engineAddress)
-        val process = try {
-            ProcessBuilder("su", "-c", supervisorScript()).start()
-        } catch (error: Exception) {
-            Log.e(TAG, "Could not start the root engine", error)
+        val startedAt = SystemClock.elapsedRealtime()
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) = EngineStatus.shairportRunning(true)
+            override fun onServiceDisconnected(name: ComponentName) = onWorker { engineDied(this, startedAt) }
+        }
+        val intent = Intent(this, EngineService::class.java)
+            .putExtra(EngineService.EXTRA_ARGUMENTS, arrayOf("shairport-sync", "-c", configFile.path))
+            .putExtra(EngineService.EXTRA_SHM_DIRECTORY, shm?.path.orEmpty())
+            .putExtra(EngineService.EXTRA_STATUS, engineMessages)
+        if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+            Log.e(TAG, "Could not start the engine process")
             notifyForeground(getString(R.string.notification_engine_error))
             return
         }
-        engine = process
+        engine = connection
         engineConfig = config
-        val startedAt = SystemClock.elapsedRealtime()
-        Thread({
-            process.errorStream.bufferedReader().forEachLine { line ->
-                if (line.startsWith(STATUS_MARKER)) {
-                    if (engine === process) applyStatus(line.removePrefix(STATUS_MARKER))
-                } else {
-                    Log.i(TAG, line)
-                }
-            }
-        }, "engine-log").start()
-        Thread({
-            try {
-                if (aaudio) drain(process.inputStream) else play(process.inputStream)
-            } catch (error: Exception) {
-                Log.e(TAG, "Audio output failed", error)
-            }
-            if (engine === process) {
-                // ponytail: restart only engines that ran a while, so a broken setup can't spin.
-                val restart = SystemClock.elapsedRealtime() - startedAt > MIN_UPTIME_FOR_RESTART_MS
-                Log.w(TAG, "Shairport Sync exited" + if (restart) "; restarting" else "")
-                if (!restart) notifyForeground(getString(R.string.notification_engine_error))
-                onWorker {
-                    if (engine === process) {
-                        stopEngine()
-                        if (restart) {
-                            Thread.sleep(RESTART_DELAY_MS)
-                            startEngine()
-                        }
-                    }
-                }
-            }
-        }, "engine-audio").start()
         notifyForeground(getString(R.string.notification_active, name))
     }
 
-    /**
-     * Runs as root; lives exactly as long as Shairport. A watcher stops Shairport when the
-     * app closes our stdin (normal stop, or the app process dying). The app only sees EOF on
-     * the audio pipe once this whole script exits, because Magisk's su client keeps its own
-     * copy of stdout open until then.
-     */
-    private fun supervisorScript(): String {
-        val userId = android.os.Process.myUid() / PER_USER_RANGE
-        val rootFiles = "/data/media/$userId/Android/data/$packageName/files"
-        val libraries = applicationInfo.nativeLibraryDir
-        val shm = shellQuote("$rootFiles/$SHM_DIRECTORY")
-        return """
-            trap '' PIPE # the app (our stderr reader) may already be dead
-            exec 3>&1 1>&2 4<&0 0</dev/null
-            # One engine at a time: the previous one may still be shutting down (app restart).
-            old=${'$'}(pidof libshairport_sync.so libnqptp.so)
-            if [ -n "${'$'}old" ]; then
-              kill ${'$'}old 2>/dev/null
-              i=0
-              while kill -0 ${'$'}old 2>/dev/null && [ ${'$'}i -lt 30 ]; do sleep 0.1; i=${'$'}((i + 1)); done
-              kill -9 ${'$'}old 2>/dev/null
-            fi
-            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still
-            # works), so senders see us but can't connect. App Wi-Fi locks can't prevent it
-            # on API 34+; root can. Turned off again when the service stops normally.
-            cmd wifi force-hi-perf-mode enabled >/dev/null 2>&1
-            export NQPTP_SHM_DIRECTORY=$shm
-            rm -f $shm/nqptp
-            ${shellQuote("$libraries/libnqptp.so")} 3>&- 4<&- & nqptp=${'$'}!
-            i=0
-            while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
-            if [ -s $shm/nqptp ]; then echo "${STATUS_MARKER}nqptp up"; else echo "${STATUS_MARKER}nqptp down"; fi
-            ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 3>&- 4<&- &
-            shairport=${'$'}!
-            echo "${STATUS_MARKER}shairport up"
-            exec 3>&-
-            # Safety net: Bionic has no real pthread cancellation, so if some wait we have not
-            # patched (android/0005) still blocks Shairport's exit, SIGKILL it after 3 s.
-            { read -r _ <&4; kill ${'$'}shairport; sleep 3; kill -9 ${'$'}shairport; } 2>/dev/null &
-            watcher=${'$'}!
-            exec 4<&-
-            wait ${'$'}shairport
-            status=${'$'}?
-            echo "${STATUS_MARKER}shairport down"
-            kill ${'$'}watcher ${'$'}nqptp 2>/dev/null
-            echo "${STATUS_MARKER}nqptp down"
-            echo "shairport-sync exited: ${'$'}status"
-            sleep 1
-            kill -9 ${'$'}nqptp 2>/dev/null
-            wait
-        """.trimIndent()
-    }
-
-    /** `@status <part> up|down`, printed by the supervisor script. */
-    private fun applyStatus(status: String) {
-        val up = status.endsWith(" up")
-        when (status.substringBefore(' ')) {
-            "nqptp" -> EngineStatus.nqptpRunning(up)
-            "shairport" -> EngineStatus.shairportRunning(up)
+    /** The :engine process ended without being asked to (Shairport exited or crashed). */
+    private fun engineDied(connection: ServiceConnection, startedAt: Long) {
+        if (engine !== connection) return
+        // ponytail: restart only engines that ran a while, so a broken setup can't spin.
+        val restart = SystemClock.elapsedRealtime() - startedAt > MIN_UPTIME_FOR_RESTART_MS
+        Log.w(TAG, "Shairport Sync exited" + if (restart) "; restarting" else "")
+        stopEngine()
+        if (restart) {
+            Thread.sleep(RESTART_DELAY_MS)
+            startEngine()
+        } else {
+            notifyForeground(getString(R.string.notification_engine_error))
         }
     }
 
     private fun stopEngine() {
-        val process = engine ?: return
+        engine?.let { runCatching { unbindService(it) } } // EngineService.onDestroy stops Shairport
         engine = null
+        engineConfig = null
         EngineStatus.engineStopped()
-        runCatching { process.outputStream.close() }
-        repeat(50) {
-            if (process.exited()) return
-            Thread.sleep(100)
+        awaitEngineExit()
+        stopNqptp(nqptp)
+        nqptp = null
+    }
+
+    /** Shairport exits in well under a second; a new engine must not start inside the old process. */
+    private fun awaitEngineExit() {
+        val pid = enginePid() ?: return
+        repeat(ENGINE_EXIT_POLLS) {
+            Thread.sleep(ENGINE_EXIT_POLL_MS)
+            if (enginePid() == null) return
         }
-        Log.w(TAG, "Root engine did not stop in time")
-        process.destroy()
+        Log.w(TAG, "Shairport Sync did not exit in time; killing its process")
+        android.os.Process.killProcess(pid)
+        repeat(ENGINE_EXIT_POLLS) {
+            if (enginePid() == null) return
+            Thread.sleep(ENGINE_EXIT_POLL_MS)
+        }
     }
 
-    /** AAudio mode: Shairport plays by itself; stdout only tells us when it exits. */
-    private fun drain(input: InputStream) {
-        val buffer = ByteArray(512)
-        while (input.read(buffer) >= 0) Unit
-    }
+    private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
+        ?.firstOrNull { it.processName == "$packageName:engine" }?.pid
 
-    // ponytail: API 25 fallback (no AAudio). Plain blocking PCM pump without delay feedback to
-    // Shairport, so the DAC clock drifts against the sender's over long sessions.
-    private fun play(input: InputStream) {
-        val minimum = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build(),
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(SAMPLE_RATE)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .build(),
-            )
-            .setBufferSizeInBytes(maxOf(minimum, SAMPLE_RATE * BYTES_PER_FRAME / 5))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-        try {
-            track.play()
-            val buffer = ByteArray(8192)
-            var pending = 0
-            while (true) {
-                val read = input.read(buffer, pending, buffer.size - pending)
-                if (read < 0) break
-                pending += read
-                val whole = pending - pending % BYTES_PER_FRAME
-                if (whole > 0) {
-                    track.write(buffer, 0, whole)
-                    buffer.copyInto(buffer, 0, whole, pending)
-                    pending -= whole
+    /**
+     * AirPlay 2 timing: NQPTP binds UDP 319/320, which needs root. Starts the root watcher and
+     * waits for NQPTP's shared memory (or su's refusal); Magisk may be showing its prompt.
+     */
+    private fun startNqptp(): Process? {
+        val process = try {
+            ProcessBuilder("su", "-c", nqptpScript()).redirectErrorStream(true).start()
+        } catch (error: IOException) {
+            Log.w(TAG, "No su: AirPlay 2 needs root; starting classic AirPlay", error)
+            return null
+        }
+        val ready = CountDownLatch(1)
+        Thread({
+            runCatching {
+                process.inputStream.bufferedReader().forEachLine { line ->
+                    when (line) {
+                        "$MARKER up" -> EngineStatus.nqptpRunning(true).also { ready.countDown() }
+                        "$MARKER down" -> EngineStatus.nqptpRunning(false).also { ready.countDown() }
+                        else -> Log.i(TAG, line)
+                    }
                 }
             }
-        } finally {
-            runCatching { track.stop() }
-            track.release()
-        }
+            ready.countDown() // su refused or ended
+        }, "nqptp-log").start()
+        if (!ready.await(NQPTP_START_TIMEOUT_S, TimeUnit.SECONDS)) Log.w(TAG, "NQPTP not ready in time")
+        return process
     }
 
-    private fun config(preferences: SharedPreferences, name: String, aaudio: Boolean): String = """
+    private fun stopNqptp(process: Process?) {
+        process ?: return
+        runCatching { process.outputStream.close() } // EOF: the watcher stops NQPTP
+        if (!process.waitFor(NQPTP_STOP_TIMEOUT_S, TimeUnit.SECONDS)) process.destroy()
+        EngineStatus.nqptpRunning(false)
+    }
+
+    /**
+     * Runs as root until its stdin reaches EOF: the app stopped AirPlay 2, or died. NQPTP writes
+     * its shared memory where Magisk root may write and the app may read: external app storage.
+     */
+    private fun nqptpScript(): String {
+        val userId = android.os.Process.myUid() / PER_USER_RANGE
+        val shm = shellQuote("/data/media/$userId/Android/data/$packageName/files/$SHM_DIRECTORY")
+        val binary = shellQuote("${applicationInfo.nativeLibraryDir}/libnqptp.so")
+        return """
+            trap '' PIPE # the app (our stdout reader) may already be dead
+            exec 4<&0 0</dev/null
+            # One NQPTP at a time: the previous one may still be shutting down (app restart).
+            old=${'$'}(pidof libnqptp.so)
+            if [ -n "${'$'}old" ]; then kill ${'$'}old; sleep 0.5; kill -9 ${'$'}old; fi 2>/dev/null
+            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still works),
+            # and app Wi-Fi locks can't prevent it on API 34+. Root can, until NQPTP stops.
+            cmd wifi force-hi-perf-mode enabled >/dev/null 2>&1
+            export NQPTP_SHM_DIRECTORY=$shm
+            rm -f $shm/nqptp
+            $binary 4<&- &
+            nqptp=${'$'}!
+            i=0
+            while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
+            if [ -s $shm/nqptp ]; then echo "$MARKER up"; else echo "$MARKER down"; fi
+            read -r _ <&4
+            kill ${'$'}nqptp 2>/dev/null
+            sleep 1
+            kill -9 ${'$'}nqptp 2>/dev/null
+            cmd wifi force-hi-perf-mode disabled >/dev/null 2>&1
+            echo "$MARKER down"
+        """.trimIndent()
+    }
+
+    // No port: Shairport always uses 7000 for AirPlay 2 and 5000 for classic AirPlay.
+    private fun config(preferences: SharedPreferences, name: String, airplay2: Boolean): String = """
         general = {
           name = ${quote(name)};
-          model = ${quote(value(preferences, Prefs.MODEL))};
-          interface = ${quote(value(preferences, Prefs.NETWORK_INTERFACE))};
-          port = ${port(value(preferences, Prefs.PORT))};
+          model = ${quote(if (airplay2) value(preferences, Prefs.MODEL) else Prefs.GENERIC_MODEL)};
           playback_mode = ${quote(value(preferences, Prefs.PLAYBACK_MODE))};
-          output_backend = ${if (aaudio) "\"aaudio\"" else "\"stdout\""};
-          mdns_backend = "tinysvcmdns";
+          output_backend = "aaudio";
+          service_type = ${if (airplay2) "\"auto\"" else "\"classic\""}; // auto: classic without NQPTP
+          airplay_device_id = ${Prefs.deviceId(this)}; // the app has no MAC address to use
           ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
         };
         metadata = {
@@ -338,11 +291,6 @@ class ReceiverService : Service() {
           include_cover_art = "no";
           socket_address = "127.0.0.1";
           socket_port = ${volumeSync.port};
-        };
-        stdout = {
-          output_format = "S16_LE";
-          output_rate = $SAMPLE_RATE;
-          output_channels = 2;
         };
         diagnostics = {
           statistics = "yes"; // ponytail: sync stats in logcat until AAudio is proven
@@ -362,35 +310,44 @@ class ReceiverService : Service() {
         preferences.getString(key, null).takeUnless { it.isNullOrBlank() }
             ?: Prefs.defaults(this)[key] as String
 
-    private fun port(value: String) = if (Prefs.isValidPort(value)) value.toInt() else 7000
-
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
 
-    private fun Process.exited(): Boolean = try {
-        exitValue()
-        true
-    } catch (_: IllegalThreadStateException) {
-        false
+    @Suppress("DEPRECATION") // allNetworks: simplest way to read the current Wi-Fi address once
+    private fun wifiAddress(): String? {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        return connectivity.allNetworks.firstNotNullOfOrNull { network ->
+            if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) null
+            else connectivity.getLinkProperties(network)?.linkAddresses
+                ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress
+        }
     }
 
-    private fun acquireMulticastLock() {
-        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        multicastLock = wifi?.createMulticastLock(TAG)?.apply {
+    /**
+     * Multicast for mDNS. The high-performance lock keeps the receiver reachable with the screen
+     * off up to Android 13; from 14 on it only works with the screen on (AirPlay 2's root
+     * watcher forces hi-perf mode instead).
+     */
+    @Suppress("DEPRECATION") // WIFI_MODE_FULL_HIGH_PERF: the lock that still works before API 34
+    private fun acquireWifiLocks() {
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        multicastLock = wifi.createMulticastLock(TAG).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+        wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, TAG).apply {
             setReferenceCounted(false)
             acquire()
         }
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.notification_channel_name),
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
-        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
+        )
     }
 
     private fun notifyForeground(text: String) {
@@ -405,18 +362,13 @@ class ReceiverService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            Notification.Builder(this)
-        }
         val stop = PendingIntent.getService(
             this,
             1,
             Intent(this, ReceiverService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return builder
+        return Notification.Builder(this, CHANNEL_ID)
             .addAction(
                 Notification.Action.Builder(
                     android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_airplay_audio),
@@ -436,27 +388,30 @@ class ReceiverService : Service() {
 
     companion object {
         private const val TAG = "Shairport"
-        private const val STATUS_MARKER = "@status "
+        private const val MARKER = "@nqptp"
         private const val ACTION_STOP = "com.hkfuertes.shairport.STOP"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000
-        private const val SAMPLE_RATE = 44100
-        /** Shairport's aaudio backend (real output delay -> sync) needs libaaudio.so. */
-        private val AAUDIO_AVAILABLE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        private const val BYTES_PER_FRAME = 4 // S16_LE stereo
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"
         private const val MIN_UPTIME_FOR_RESTART_MS = 30_000L
         private const val RESTART_DELAY_MS = 2_000L
+        private const val ENGINE_EXIT_POLLS = 50
+        private const val ENGINE_EXIT_POLL_MS = 100L
+        /** Covers Magisk's grant prompt (10 s by default). */
+        private const val NQPTP_START_TIMEOUT_S = 15L
+        private const val NQPTP_STOP_TIMEOUT_S = 3L
+
+        /** One worker for every instance: a new service's start waits for the old one's stop. */
+        private val worker = Executors.newSingleThreadExecutor()
+
+        private fun onWorker(task: () -> Unit) {
+            worker.execute(task)
+        }
 
         fun start(context: Context) {
-            val intent = Intent(context, ReceiverService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(Intent(context, ReceiverService::class.java))
         }
 
         fun stop(context: Context) {

@@ -1,0 +1,286 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 17:30:00 +0200
+Subject: [PATCH] android: build as a JNI library with NsdManager mDNS
+
+The app runs Shairport Sync inside a process of its own instead of as a root
+executable. main() becomes shairport_main(), called by android.c's
+Engine.run(); Engine.stop() uses the existing exit_request(). Logging (stderr)
+is piped to logcat, and a last atexit handler ends the process with _exit()
+once Shairport's own cleanup has run. get_device_id() no longer waits 10 s
+for a MAC address that an app can never read.
+
+The "android" mDNS backend hands every service and TXT record to the app,
+which registers them with NsdManager: no responder of our own, no port 5353,
+no MAC address needed (the app passes general.airplay_device_id).
+
+Upstream: not submitted (Android only)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+diff --git a/Makefile.am b/Makefile.am
+index 5cfab26..17e32df 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -32,7 +32,7 @@ shairport_sync_SOURCES = shairport.c bonjour_strings.c mdns.c common.c rtp.c \
+   rtsp.c \
+   utilities/debug.c utilities/network_utilities.c utilities/rtsp_message_utilities.c \
+   utilities/string_utilities.c \
+-  utilities/exit.c
++  utilities/exit.c android.c
+ 
+ if BUILD_FOR_DARWIN
+   AM_CXXFLAGS = -I/usr/local/include -Wno-multichar -Wall -Wextra -Wno-deprecated-declarations -pthread -DSYSCONFDIR=\"$(sysconfdir)\"
+diff --git a/android.c b/android.c
+new file mode 100644
+index 0000000..75513ce
+--- /dev/null
++++ b/android.c
+@@ -0,0 +1,191 @@
++/*
++ * Shairport Sync as an Android JNI library, for com.hkfuertes.shairport.Engine.
++ *
++ * The app runs it in a process of its own (one run per process): Engine.run() calls
++ * shairport_main() and never returns, because Shairport ends the process through exit().
++ * Engine.stop() asks for that exit. mDNS goes through Android's NsdManager (the "android"
++ * backend below), so Shairport needs no responder, port 5353 or MAC address of its own.
++ */
++
++#include <android/log.h>
++#include <jni.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "common.h"
++#include "mdns.h"
++#include "utilities/exit.h"
++
++int shairport_main(int argc, char **argv);
++extern volatile sig_atomic_t exit_status; // utilities/exit.c
++
++static JavaVM *java_vm;
++static jclass engine_class;
++static jmethodID publish_method, unpublish_method;
++static pthread_t log_thread;
++static int log_forwarding;
++
++JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
++  JNIEnv *env;
++  java_vm = vm;
++  if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK)
++    return JNI_ERR;
++  // Native threads can't find app classes later (system class loader): keep them from here.
++  jclass engine = (*env)->FindClass(env, "com/hkfuertes/shairport/Engine");
++  if (engine == NULL)
++    return JNI_ERR;
++  engine_class = (*env)->NewGlobalRef(env, engine);
++  publish_method =
++      (*env)->GetStaticMethodID(env, engine, "mdnsPublish", "(Ljava/lang/String;[BI[[B)V");
++  unpublish_method = (*env)->GetStaticMethodID(env, engine, "mdnsUnpublish", "()V");
++  return publish_method && unpublish_method ? JNI_VERSION_1_6 : JNI_ERR;
++}
++
++// App processes have stdout and stderr on /dev/null; Shairport logs to stderr.
++static void *forward_log(void *arg) {
++  FILE *log = fdopen((int)(intptr_t)arg, "r");
++  char line[1024];
++  while (log != NULL && fgets(line, sizeof(line), log) != NULL) {
++    line[strcspn(line, "\n")] = '\0';
++    __android_log_write(ANDROID_LOG_INFO, "Shairport", line);
++  }
++  return NULL;
++}
++
++// Registered before Shairport's own atexit handlers, so it runs right after them: the rest of
++// exit() would run other libraries' destructors while ART's threads are still running.
++static void exit_now(void) {
++  if (log_forwarding) { // flush what is still in the pipe to logcat first
++    close(STDOUT_FILENO);
++    close(STDERR_FILENO);
++    pthread_join(log_thread, NULL);
++  }
++  _exit(exit_status);
++}
++
++JNIEXPORT jint JNICALL Java_com_hkfuertes_shairport_Engine_run(JNIEnv *env,
++                                                               __attribute__((unused)) jclass c,
++                                                               jobjectArray arguments) {
++  int fds[2];
++  if (pipe(fds) == 0) {
++    dup2(fds[1], STDOUT_FILENO);
++    dup2(fds[1], STDERR_FILENO);
++    close(fds[1]);
++    setvbuf(stdout, NULL, _IOLBF, 0);
++    log_forwarding =
++        pthread_create(&log_thread, NULL, forward_log, (void *)(intptr_t)fds[0]) == 0;
++  }
++  atexit(exit_now);
++  int argc = (*env)->GetArrayLength(env, arguments);
++  char **argv = calloc(argc + 1, sizeof(char *));
++  for (int i = 0; i < argc; i++) {
++    jstring argument = (*env)->GetObjectArrayElement(env, arguments, i);
++    const char *chars = (*env)->GetStringUTFChars(env, argument, NULL);
++    argv[i] = strdup(chars);
++    (*env)->ReleaseStringUTFChars(env, argument, chars);
++  }
++  return shairport_main(argc, argv);
++}
++
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_stop(__attribute__((unused)) JNIEnv *env,
++                                                                __attribute__((unused)) jclass c) {
++  exit_request(EXIT_SUCCESS);
++}
++
++// mDNS backend "android": Engine.mdnsPublish() registers each service with NsdManager, which has
++// no TXT update, so a publish replaces the service of the same type.
++
++static char *raop_name, *airplay_name;
++static int service_port;
++
++static JNIEnv *attach(int *attached) {
++  JNIEnv *env = NULL;
++  *attached = 0;
++  if ((*java_vm)->GetEnv(java_vm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
++    if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) != JNI_OK)
++      return NULL;
++    *attached = 1;
++  }
++  return env;
++}
++
++static void detach(JNIEnv *env, int attached) {
++  if ((*env)->ExceptionCheck(env)) {
++    (*env)->ExceptionDescribe(env);
++    (*env)->ExceptionClear(env);
++  }
++  if (attached)
++    (*java_vm)->DetachCurrentThread(java_vm);
++}
++
++// Bytes, not jstring: NewStringUTF() rejects UTF-8 outside the BMP (e.g. emoji in a name).
++static jbyteArray bytes(JNIEnv *env, const char *text) {
++  jsize length = strlen(text);
++  jbyteArray array = (*env)->NewByteArray(env, length);
++  (*env)->SetByteArrayRegion(env, array, 0, length, (const jbyte *)text);
++  return array;
++}
++
++static void publish(JNIEnv *env, const char *type, const char *name, char **txt_records) {
++  jsize count = 0;
++  while (txt_records[count] != NULL)
++    count++;
++  jclass byte_array = (*env)->FindClass(env, "[B");
++  jobjectArray records = (*env)->NewObjectArray(env, count, byte_array, NULL);
++  for (jsize i = 0; i < count; i++) {
++    jbyteArray record = bytes(env, txt_records[i]);
++    (*env)->SetObjectArrayElement(env, records, i, record);
++    (*env)->DeleteLocalRef(env, record);
++  }
++  jstring service_type = (*env)->NewStringUTF(env, type);
++  jbyteArray service_name = bytes(env, name);
++  (*env)->CallStaticVoidMethod(env, engine_class, publish_method, service_type, service_name,
++                               service_port, records);
++  (*env)->DeleteLocalRef(env, service_name);
++  (*env)->DeleteLocalRef(env, service_type);
++  (*env)->DeleteLocalRef(env, records);
++  (*env)->DeleteLocalRef(env, byte_array);
++}
++
++static int android_update(char **txt_records, char **secondary_txt_records) {
++  int attached;
++  JNIEnv *env = attach(&attached);
++  if (env == NULL)
++    return -1;
++  if (airplay_name != NULL && secondary_txt_records != NULL)
++    publish(env, config.regtype2, airplay_name, secondary_txt_records);
++  if (txt_records != NULL)
++    publish(env, config.regtype, raop_name, txt_records);
++  detach(env, attached);
++  return 0;
++}
++
++static int android_register(char *ap1name, char *ap2name, int port, char **txt_records,
++                            char **secondary_txt_records) {
++  raop_name = strdup(ap1name);
++  airplay_name = ap2name != NULL ? strdup(ap2name) : NULL;
++  service_port = port;
++  return android_update(txt_records, secondary_txt_records);
++}
++
++static void android_unregister(void) {
++  int attached;
++  JNIEnv *env = attach(&attached);
++  if (env == NULL)
++    return;
++  (*env)->CallStaticVoidMethod(env, engine_class, unpublish_method);
++  detach(env, attached);
++}
++
++mdns_backend mdns_android = {.name = "android",
++                             .mdns_register = android_register,
++                             .mdns_update = android_update,
++                             .mdns_unregister = android_unregister,
++                             .mdns_dacp_monitor_start = NULL,
++                             .mdns_dacp_monitor_set_id = NULL,
++                             .mdns_dacp_monitor_stop = NULL};
+diff --git a/common.c b/common.c
+index a81fbbb..a3ea3ed 100644
+--- a/common.c
++++ b/common.c
+@@ -2268,7 +2268,9 @@ char *debug_malloc_hex_cstring(void *packet, size_t nread) {
+ 
+ int get_device_id(uint8_t *id, int int_length) {
+ 
+-  uint64_t wait_time = 10000000000L; // wait up to this (ns) long to get a MAC address
++  // Android: apps can't read MAC addresses, so don't wait for one (the app passes
++  // general.airplay_device_id instead).
++  uint64_t wait_time = 0;
+ 
+   int response = -1;
+   struct ifaddrs *ifaddr = NULL;
+@@ -2330,7 +2332,7 @@ int get_device_id(uint8_t *id, int int_length) {
+     time_to_wait = wait_until - get_absolute_time_in_ns();
+   } while ((response != 0) && (time_to_wait > 0));
+   if (response != 0)
+-    warn("Can't create a device ID -- no valid MAC address can be found.");
++    debug(1, "Can't create a device ID -- no valid MAC address can be found.");
+   return response;
+ }
+ 
+diff --git a/mdns.c b/mdns.c
+index 8f4fa0b..60d4cb4 100644
+--- a/mdns.c
++++ b/mdns.c
+@@ -33,6 +33,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++extern mdns_backend mdns_android; // android.c: NsdManager
+ #ifdef CONFIG_AVAHI
+ extern mdns_backend mdns_avahi;
+ #endif
+@@ -49,6 +50,7 @@ extern mdns_backend mdns_external_dns_sd;
+ #endif
+ 
+ static mdns_backend *mdns_backends[] = {
++    &mdns_android,
+ #ifdef CONFIG_AVAHI
+     &mdns_avahi,
+ #endif
+diff --git a/shairport.c b/shairport.c
+index 42225e7..5d6364a 100644
+--- a/shairport.c
++++ b/shairport.c
+@@ -2361,7 +2361,7 @@ const char *av_channel_layout_name(uint64_t channel_layout) {
+ 
+ #endif
+ 
+-int main(int argc, char **argv) {
++int shairport_main(int argc, char **argv) { // Android: called by android.c (JNI)
+   exit_init(); // initialise the exit handler to give us a clean safe exit on request
+   // initialise debug messages stuff -- level 0, no elapsed time, relative time, file and line
+   // debug_init(int level, int show_elapsed_time, int show_relative_time, int show_file_and_line)
