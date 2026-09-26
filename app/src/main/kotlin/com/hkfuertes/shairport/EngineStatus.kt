@@ -18,6 +18,13 @@ object EngineStatus {
     @Volatile var source: String? = null
         private set
     @Volatile private var sourceName: String? = null
+    /** Current track from Shairport's DAAP metadata (`minm`, `asar`, `asal`), null when unknown. */
+    @Volatile var title: String? = null
+        private set
+    @Volatile var artist: String? = null
+        private set
+    @Volatile var album: String? = null
+        private set
 
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 
@@ -37,15 +44,14 @@ object EngineStatus {
 
     fun shairportRunning(running: Boolean) {
         shairport = running
-        if (!running) source = null
+        if (!running) playing(false)
         changed()
     }
 
     fun engineStopped() {
         nqptp = false
         shairport = false
-        source = null
-        changed()
+        playing(false)
     }
 
     /** Shairport metadata: `snam` names the sender, `pbeg`/`pend` bracket playback. */
@@ -55,6 +61,22 @@ object EngineStatus {
 
     fun playing(playing: Boolean) {
         source = if (playing) sourceName ?: "AirPlay" else null
+        if (!playing) newTrack()
         changed()
+    }
+
+    /** `ssnc/mdst` opens a new metadata bundle: forget the previous track's fields. */
+    fun newTrack() {
+        title = null
+        artist = null
+        album = null
+    }
+
+    fun track(code: String, value: String) {
+        when (code) {
+            "minm" -> title = value
+            "asar" -> artist = value
+            "asal" -> album = value
+        }
     }
 }

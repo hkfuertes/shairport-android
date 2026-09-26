@@ -253,3 +253,35 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   "Stop" action verified (pref off, engine gone). Quick Settings tile verified off/on with
   `cmd statusbar click-tile` (only works with the panel expanded; FGS start from the tile is
   allowed: "Background started FGS: Allowed"); tile removed again from the user's QS panel.
+
+## 2026-09-26 (afternoon) — branch feat/docker-build-kiosk-plugin
+
+- User decisions: keep boot start as the Magisk service.d script (BOOT_COMPLETED can't start a
+  mediaPlayback FGS on Android 15; switching to connectedDevice was declined); no upstream
+  sources in the repo, everything vendored appears in Docker; a Kiosk Satellite plugin in this
+  repo that only manages the app (never runs Shairport), over the adb interface via Shizuku.
+- Build: one multi-stage Dockerfile (ndk -> deps -> engine -> apk, sdk -> plugin). Pins and
+  checksums moved from upstream.env/scripts into it; armv7 deps are built here (API 25) instead
+  of coming from shairport-echo-deps:local. scripts/, upstream.env, third_party/ and
+  patches/reference are gone; patches live in native/patches (same names and order).
+  Cold build ~37 min to the engine (deps ~12 min per ABI), then APK ~9 min (Gradle download);
+  cached `make` 8 s. The rebuilt .so were the same size as before and byte-identical between two
+  engine rebuilds (the APK stage stayed cached).
+- Pitfalls: `$(if ...)` in the Makefile split `--secret id=...,src=...` at the comma; javac in
+  the container defaults to US-ASCII (ENV LANG=C.UTF-8 in the plugin stage); a README inside
+  native/patches invalidated the engine layer (.dockerignore excludes native/**/*.md).
+- App: GET_STATUS (URL-encoded state/source/title/artist/album/address/volume + settings, no
+  log line per call); track from `core` minm/asar/asal (cleared on ssnc/mdst and pend);
+  ReceiverService exported behind DUMP so `adb shell am start-foreground-service` works without
+  root ("Requires permission not exported" before).
+- Verified on the POCO as the shell uid (what Shizuku's shell backend runs): install -r kept the
+  signature; start-foreground-service from shell -> engine up, avahi-browse sees "Poco F1";
+  CONFIGURE server_name "Poco F1 Salón" -> advertised; simulated metadata over nc -u
+  (snam, pbeg, mdst, minm "Song ñ", asar "Artist & Co", asal) -> GET_STATUS playing with the
+  track, pend -> idle; receiver_enabled false -> engine gone, state off; true + start -> idle.
+  Name restored to "Poco F1". tests/aaudio/run.sh through the new Docker target: PASS.
+- Kiosk Satellite plugin (kiosk-plugin/): settings (receiver, name, model, playback mode, start
+  at boot), entities (switch receiver = enabled and running; State, Source, Title, Artist,
+  Album; Volume %). Tested with a fake host in the Dockerfile (ShairportPluginTest); not yet run
+  inside Kiosk Satellite (neither KS nor Shizuku is installed on the POCO). SDK 1 has no
+  media_player: README shows a Home Assistant universal media player over the entities.

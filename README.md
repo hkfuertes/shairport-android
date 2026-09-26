@@ -2,7 +2,7 @@
 
 A rooted Android app that turns the phone into an AirPlay 2 receiver: Shairport Sync 5.5.1 (AirPlay 2) and NQPTP 1.2.8, cross-compiled with the NDK and run as root children of the app. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk): discovered and played from an iPhone.
 
-This is deliberately **not** an upstream source mirror: `make fetch` downloads pinned sources into ignored `third_party/` and `make patch` applies the Android patch stack.
+This is deliberately **not** an upstream source mirror: the repository keeps only its own code and patches. The Dockerfile downloads the pinned upstream sources, checks their checksums and applies the Android patch stack. A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk and Home Assistant.
 
 ## How it works
 
@@ -16,15 +16,14 @@ This is deliberately **not** an upstream source mirror: `make fetch` downloads p
 
 ## Build
 
-Everything compiles in Docker (`shairport-echo-deps:local` for Shairport and its static dependencies, `shairplay-android-builder:latest` for NQPTP and Gradle), offline:
+Everything builds in Docker, from a clean clone, with nothing else on the host:
 
 ```sh
-make fetch patch
-./scripts/build-android-docker.sh
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+make           # build/app-debug.apk and build/kiosk-plugin/
+make install   # and adb install -r
 ```
 
-The first run builds the arm64 dependency prefix (`build/deps/arm64-v8a`, resumable); armv7 dependencies come prebuilt in the deps image. Shairport and NQPTP builds are incremental. `~/.android` is mounted so the debug signing key stays stable across builds.
+The [Dockerfile](Dockerfile) downloads the NDK, the static dependencies (popt, libconfig, libsodium, libgpg-error, libgcrypt, libplist, OpenSSL, FFmpeg, libuuid), Shairport Sync and NQPTP at pinned versions, checks their checksums, applies [`native/patches`](native/patches/README.md) and builds arm64-v8a and armeabi-v7a, then the APK and the plugin. Docker's layer cache replaces incremental builds: a patch change rebuilds only Shairport Sync and NQPTP, a Kotlin change only reruns Gradle. The first build takes a while. `make` passes `~/.android/debug.keystore` as a build secret, so the debug signature stays stable across builds. `make jnilibs` exports only the engine to `build/jniLibs`, which `app/build.gradle` packages, for Gradle builds outside Docker (Android Studio).
 
 `tests/aaudio/run.sh [serial]` checks the AAudio backend on a rooted API 26+ device, writing only zeros.
 
@@ -55,6 +54,13 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
   -a com.hkfuertes.shairport.LIST_SETTINGS
 ```
 
+The current state, for the [Kiosk Satellite plugin](#kiosk-satellite-plugin), as one URL-encoded line: `state` (`off`, `idle` or `playing`), `source`, `title`, `artist`, `album`, `address`, `volume` (music stream, %) and every setting's value:
+
+```sh
+adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
+  -a com.hkfuertes.shairport.GET_STATUS
+```
+
 Turning the receiver on over adb only takes effect when the receiver is next started: from the app, or as in [Headless setup](#headless-setup).
 
 ## Headless setup
@@ -71,10 +77,10 @@ The whole setup works over adb, with no screen interaction, on a Magisk-rooted d
 
    Stick to plain `SELECT`/`REPLACE`/`DELETE` statements: a `PRAGMA` query crashed `magiskd` on Magisk 30.7, and root was gone until the next reboot.
 3. Configure it as in [Configure from ADB](#configure-from-adb).
-4. Start the receiver without opening the app (root may start the non-exported service):
+4. Start the receiver without opening the app (the service is exported only to holders of `android.permission.DUMP`: adb, Shizuku, root):
 
    ```sh
-   adb shell su -c "'am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService'"
+   adb shell am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService
    ```
 
 5. Start it at every boot with a Magisk `service.d` script, which runs as root. The app's "Start at boot" switch (or `--es key start_at_boot --ez value true` over adb) writes and removes exactly this script. By hand:
@@ -92,11 +98,41 @@ The whole setup works over adb, with no screen interaction, on a Magisk-rooted d
 
    Wi-Fi often gets its address after the engine starts at boot. The service restarts the engine as soon as the address it advertises is out of date.
 
+## Kiosk Satellite plugin
+
+[`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed and granted root as above, and it keeps running the receiver. The plugin uses the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
+
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, Name, Model, Playback mode, Start at boot. They show the app's current values, including changes made in the app itself.
+- Home Assistant (ESPHome with native entities enabled in Kiosk Satellite): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
+
+Install it with this repository's URL in **Plugin Manager > Add plugin** (each GitHub release carries the plugin, attached by `.github/workflows/release.yml`), or build it with `make plugin` and use **Developer Tools > Install from ZIP** with `build/kiosk-plugin/shairport-*.zip`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
+
+The plugin SDK has no media player entity. A Home Assistant [universal media player](https://www.home-assistant.io/integrations/universal/) can wrap the entities (replace the entity IDs with yours):
+
+```yaml
+media_player:
+  - platform: universal
+    name: AirPlay
+    state_template: "{{ states('sensor.kiosk_shairport_state') }}"
+    attributes:
+      media_title: sensor.kiosk_shairport_title
+      media_artist: sensor.kiosk_shairport_artist
+      media_album_name: sensor.kiosk_shairport_album
+      source: sensor.kiosk_shairport_source
+    commands:
+      turn_on: {action: switch.turn_on, target: {entity_id: switch.kiosk_shairport_airplay_receiver}}
+      turn_off: {action: switch.turn_off, target: {entity_id: switch.kiosk_shairport_airplay_receiver}}
+```
+
+Playback control (play, pause, next) is not exposed: like the volume, it would need DACP back to the sender (see HANDOFF).
+
 ## Layout
 
+- `Dockerfile`, `Makefile`: the whole build (see [Build](#build)).
 - `app/`: Kotlin app (`MainActivity`, `ReceiverService`, `VolumeSync`, `Prefs`, `SettingsReceiver`, `ModelPreference`).
-- `patches/`: Android patch stack, in order; see [`patches/README.md`](patches/README.md).
-- `scripts/`: fetch/patch, Docker builds (`build-android-docker.sh`, `build-shairport-android.sh`, `build-shairport-deps-android.sh`, `build-nqptp-android.sh`).
+- `native/`: engine build steps run by the Dockerfile (`build-deps.sh`, `build-engine.sh`) and the Android patch stack, in order; see [`native/patches/README.md`](native/patches/README.md).
+- `kiosk-plugin/`: the Kiosk Satellite plugin (Java), with its test.
+- `tests/aaudio/`: on-device check of the AAudio backend.
 - `diario.md`: night log of decisions, measurements and dead ends.
 
 The Echo raw-ALSA backend, Echo controls, LED controller, Rust artifacts, installer and TWRP files belong to the device-specific `shairport-echo` project and are intentionally excluded.
