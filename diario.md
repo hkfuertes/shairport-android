@@ -212,3 +212,15 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - Model list trimmed to audio devices (user): Generic (hifispeaker icon, the generic
   speaker iOS uses), AirPort Express (airport.express icon), HomePod, HomePod mini.
   Apple TV and Mac entries/icons removed; every model now has an icon.
+- User checked on the iPhone: Generic (ShairportSync) and AirPort Express (AirPort10,115) both
+  show a speaker-with-waves glyph, HomePod/HomePod mini show their own. macOS's CoreTypes table
+  (hifispeaker / airport.express) does not apply to iOS for those.
+- Research: real Sonos TXT (owntone src/outputs/airplay.c comments): manufacturer=Sonos,
+  model=Bookshelf (short model), serialNumber, fv=p20..., srcvers=366.0, protovers=1.1,
+  flags=0x4, rsf=0x0, features=0x445F8A00,0x1C340. Marantz: model=NR1607; Libratone:
+  model=LibratoneLoop1. Apple sends no manufacturer and an identifier as model.
+  AirplayKit (phranck) read CoreGlyphs name_availability.plist: only Apple products have
+  device-shaped glyphs; third parties get generic ones. No TXT value selects `hifispeaker` on
+  iOS: any non-Apple model gets iOS's generic speaker-with-waves route icon.
+- ic_model_speaker_wave.png is DRAWN (approximation, 40 px stroke like the set) until the exact
+  iOS glyph is extracted from CoreGlyphs.
