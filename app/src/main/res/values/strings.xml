@@ -18,15 +18,15 @@
     <string name="port_title">AirPlay port</string>
     <string name="port_summary">Between 1 and 65535.</string>
     <string name="playback_mode_title">Playback mode</string>
-    <string name="playback_mode_summary">Format sent to the future AudioTrack backend.</string>
+    <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
     <string name="fixed_category">Fixed engine</string>
     <string name="fixed_engine_title">Service, backend, and discovery</string>
-    <string name="fixed_engine_summary">NQPTP + AudioTrack; Shairport engine pending.</string>
+    <string name="fixed_engine_summary">Shairport Sync (AirPlay 2) + NQPTP as root, TinySVCmDNS discovery, AudioTrack output.</string>
     <string name="invalid_port">Port must be between 1 and 65535.</string>
     <string name="notification_channel_name">Shairport AP2 service</string>
-    <string name="notification_starting">Starting NQPTP and JNI bridge.</string>
-    <string name="notification_active">NQPTP and JNI/AudioTrack ready; Shairport engine pending.</string>
-    <string name="notification_nqptp_error">Could not start NQPTP or access its shared memory.</string>
-    <string name="notification_native_error">Could not start the JNI or AudioTrack bridge.</string>
+    <string name="notification_starting">Starting AirPlay receiver…</string>
+    <string name="notification_active">AirPlay receiver "%1$s" is active.</string>
+    <string name="notification_engine_error">AirPlay receiver stopped unexpectedly; toggle the receiver to restart.</string>
+    <string name="notification_storage_error">External app storage is unavailable.</string>
     <string name="notification_config_error">Could not save the configuration.</string>
 </resources>

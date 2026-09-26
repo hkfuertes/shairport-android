@@ -3,16 +3,9 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def ndkHome = System.getenv('ANDROID_NDK_HOME')
-
 android {
     namespace 'com.hkfuertes.shairportap2'
     compileSdk 35
-    ndkVersion '27.2.12479018'
-
-    if (ndkHome != null) {
-        ndkPath ndkHome
-    }
 
     defaultConfig {
         applicationId 'com.hkfuertes.shairportap2'
@@ -26,15 +19,9 @@ android {
         }
     }
 
-    externalNativeBuild {
-        ndkBuild {
-            path file('src/main/jni/Android.mk')
-        }
-    }
-
     sourceSets {
         main {
-            jniLibs.srcDir('../build/nqptp')
+            jniLibs.srcDirs('../build/nqptp', '../build/shairport-bin')
         }
     }
 

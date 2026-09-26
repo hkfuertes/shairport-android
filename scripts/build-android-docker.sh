@@ -6,6 +6,7 @@ sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}
 gradle_home=${HOST_GRADLE_HOME:-$HOME/.gradle}
 android_user_home=${HOST_ANDROID_USER_HOME:-$HOME/.android}
 image=${ANDROID_BUILDER_IMAGE:-shairplay-android-builder:latest}
+deps_image=${SHAIRPORT_DEPS_IMAGE:-shairport-echo-deps:local}
 
 [ -d "$sdk" ] || {
   echo "Android SDK not found: $sdk" >&2
@@ -19,6 +20,15 @@ image=${ANDROID_BUILDER_IMAGE:-shairplay-android-builder:latest}
   echo "Android user home not found: $android_user_home" >&2
   exit 1
 }
+
+# Shairport Sync + its static deps (sources/armv7 deps live in the deps image).
+docker run --rm --network none \
+  --user "$(id -u):$(id -g)" \
+  -e JOBS="${JOBS:-$(nproc)}" \
+  -v "$root:/work" \
+  -w /work \
+  "$deps_image" \
+  sh -c './scripts/build-shairport-android.sh'
 
 exec docker run --rm --network none \
   --user "$(id -u):$(id -g)" \

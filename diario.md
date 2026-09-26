@@ -48,3 +48,10 @@ Found:
 - Decision: drop JNI. Engine = root child (`su`), audio = Shairport `stdout`
   backend (S16_LE/44100/2ch) piped through su's stdout into Kotlin AudioTrack.
   Supervisor exits when its stdin (pipe from app) hits EOF -> no PID files/polling.
+- 01:58 APK (root engine + Kotlin AudioTrack pump, no JNI) installed on POCO:
+  supervisor sh -> libnqptp.so + libshairport_sync.so, :7000 + :5353, advertised as
+  "Shairport AP2 Android" with AP2 TXT. Force-stop cleans both (stdin EOF works).
+  pyatv can't test AP2 (uses NTP timing; Shairport: "can not handle NTP streams").
+- 02:00 **USER CONFIRMED: audio from iPhone works great.** User asleep: DO NOT PLAY
+  ANY SOUND (no pyatv/stream tests). Next request: bidirectional volume sync
+  (Android volume keys -> iPhone slider, iPhone slider -> Android stream volume).

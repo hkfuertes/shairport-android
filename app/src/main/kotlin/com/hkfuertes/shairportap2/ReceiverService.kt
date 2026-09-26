@@ -7,23 +7,25 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.preference.PreferenceManager
 import android.util.Log
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.io.OutputStreamWriter
-import java.io.Writer
-import java.nio.charset.StandardCharsets
+import java.io.InputStream
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class ReceiverService : Service() {
+    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private var multicastLock: WifiManager.MulticastLock? = null
-    private var nqptp: Process? = null
-    private var nqptpSharedDirectory: File? = null
-    @Volatile private var startGeneration = 0
+    @Volatile private var engine: Process? = null
+    private var engineConfig: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -32,132 +34,188 @@ class ReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(R.string.notification_starting))
-        val generation = ++startGeneration
-        try {
-            val config = writeConfig()
-            val sharedDirectory = startNqptp()
-            if (sharedDirectory == null) {
-                notifyForeground(R.string.notification_nqptp_error)
-            } else {
-                Thread({
-                    if (!waitForNqptp(sharedDirectory)) {
-                        if (generation == startGeneration) {
-                            notifyForeground(R.string.notification_nqptp_error)
-                        }
-                    } else if (generation == startGeneration) {
-                        val error = NativeBridge.start(config.absolutePath, sharedDirectory.absolutePath)
-                        if (error == null) {
-                            notifyForeground(R.string.notification_active)
-                        } else {
-                            Log.e(TAG, "Could not start JNI bridge: $error")
-                            notifyForeground(R.string.notification_native_error)
-                        }
-                    }
-                }, "receiver-start").start()
-            }
-        } catch (e: IOException) {
-            Log.e(TAG, "Could not write Shairport configuration", e)
-            notifyForeground(R.string.notification_config_error)
-        }
+        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_starting)))
+        worker.execute { startEngine() }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        startGeneration++
-        NativeBridge.stop()
-        stopNqptp()
+        worker.execute { stopEngine() }
+        worker.shutdown()
         multicastLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startNqptp(): File? {
-        nqptp?.takeIf { it.isAlive }?.let { process ->
-            nqptpSharedDirectory?.let { return it }
-            process.destroy()
+    /** (Re)starts the engine unless it is already running with the same configuration. */
+    private fun startEngine() {
+        val preferences = PreferenceManager.getDefaultSharedPreferences(this)
+        val name = value(preferences, MainActivity.PREF_SERVER_NAME, DEFAULT_NAME)
+        val config = config(preferences, name)
+        if (engine != null && config == engineConfig) {
+            notifyForeground(getString(R.string.notification_active, name))
+            return
         }
-        stopNqptp()
-
-        val externalFiles = getExternalFilesDir(null) ?: run {
-            Log.e(TAG, "External app storage is unavailable for NQPTP")
-            return null
+        stopEngine()
+        val files = getExternalFilesDir(null)
+        if (files == null) {
+            notifyForeground(getString(R.string.notification_storage_error))
+            return
         }
-        val sharedDirectory = File(externalFiles, "nqptp-shm")
-        if (!sharedDirectory.exists() && !sharedDirectory.mkdirs()) {
-            Log.e(TAG, "Could not create NQPTP shared-memory directory")
-            return null
-        }
-        File(sharedDirectory, "nqptp").delete()
-        File(sharedDirectory, "nqptp-supervisor.pid").delete()
-
-        val executable = File(applicationInfo.nativeLibraryDir, "libnqptp.so")
-        if (!executable.canExecute()) {
-            Log.e(TAG, "NQPTP executable is unavailable: $executable")
-            return null
-        }
-        val userId = android.os.Process.myUid() / PER_USER_RANGE
-        val rootSharedDirectory = "/data/media/$userId/Android/data/$packageName/files/nqptp-shm"
-        val rootPidFile = "$rootSharedDirectory/nqptp-supervisor.pid"
-        val appPid = android.os.Process.myPid()
-        // ponytail: poll the app PID once a second; replace only if Magisk exposes parent-bound jobs.
-        val command = "NQPTP_SHM_DIRECTORY=${shellQuote(rootSharedDirectory)} " +
-            "${shellQuote(executable.absolutePath)} -v & child=\$!; " +
-            "printf '%s\\n' \"\$\$\" > ${shellQuote(rootPidFile)}; " +
-            "cleanup() { kill \"\$child\" 2>/dev/null || true; wait \"\$child\" 2>/dev/null || true; " +
-            "rm -f ${shellQuote(rootPidFile)}; }; " +
-            "trap 'cleanup; exit 0' INT TERM; " +
-            "while kill -0 $appPid 2>/dev/null; do " +
-            "kill -0 \"\$child\" 2>/dev/null || { cleanup; exit 1; }; sleep 1; done; cleanup"
-        return try {
-            ProcessBuilder("su", "-c", command).redirectErrorStream(true).start().also { process ->
-                nqptp = process
-                nqptpSharedDirectory = sharedDirectory
-                Thread({
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { Log.i(TAG, "NQPTP: $it") }
-                    }
-                }, "nqptp-log").start()
-            }
-            sharedDirectory
+        try {
+            File(files, SHM_DIRECTORY).mkdirs()
+            File(files, CONFIG_FILE).writeText(config)
         } catch (error: Exception) {
-            Log.e(TAG, "Could not start NQPTP", error)
-            null
+            Log.e(TAG, "Could not write Shairport configuration", error)
+            notifyForeground(getString(R.string.notification_config_error))
+            return
         }
-    }
 
-    private fun waitForNqptp(sharedDirectory: File): Boolean {
-        repeat(20) {
-            if (File(sharedDirectory, "nqptp").canRead()) return true
-            if (nqptp?.isAlive != true) return false
-            try {
-                Thread.sleep(100)
-            } catch (_: InterruptedException) {
-                return false
-            }
+        val process = try {
+            ProcessBuilder("su", "-c", supervisorScript()).start()
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not start the root engine", error)
+            notifyForeground(getString(R.string.notification_engine_error))
+            return
         }
-        return false
-    }
-
-    private fun stopNqptp() {
-        val pid = nqptpSharedDirectory
-            ?.let { File(it, "nqptp-supervisor.pid") }
-            ?.takeIf { it.isFile }
-            ?.let { runCatching { it.readText().trim().toIntOrNull() }.getOrNull() }
-        if (pid != null && pid > 1) {
+        engine = process
+        engineConfig = config
+        Thread({
+            process.errorStream.bufferedReader().forEachLine { Log.i(TAG, it) }
+        }, "engine-log").start()
+        Thread({
             try {
-                ProcessBuilder("su", "-c", "kill $pid").start()
+                play(process.inputStream)
             } catch (error: Exception) {
-                Log.w(TAG, "Could not stop NQPTP supervisor", error)
+                Log.e(TAG, "Audio output failed", error)
             }
-        }
-        nqptp?.destroy()
-        nqptp = null
-        nqptpSharedDirectory = null
+            if (engine === process) {
+                Log.w(TAG, "Shairport Sync exited")
+                notifyForeground(getString(R.string.notification_engine_error))
+                worker.execute { if (engine === process) stopEngine() }
+            }
+        }, "engine-audio").start()
+        notifyForeground(getString(R.string.notification_active, name))
     }
+
+    /**
+     * Runs as root. NQPTP and Shairport are children of this shell; closing its stdin
+     * (normal stop, or the app process dying) makes `read` return and stops both.
+     * Only Shairport keeps the original stdout, so the app sees EOF when it exits.
+     */
+    private fun supervisorScript(): String {
+        val userId = android.os.Process.myUid() / PER_USER_RANGE
+        val rootFiles = "/data/media/$userId/Android/data/$packageName/files"
+        val libraries = applicationInfo.nativeLibraryDir
+        val shm = shellQuote("$rootFiles/$SHM_DIRECTORY")
+        return """
+            exec 3>&1 1>&2
+            export NQPTP_SHM_DIRECTORY=$shm
+            rm -f $shm/nqptp
+            ${shellQuote("$libraries/libnqptp.so")} & nqptp=${'$'}!
+            i=0
+            while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
+            ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 &
+            shairport=${'$'}!
+            exec 3>&-
+            read -r _ || true
+            kill ${'$'}shairport ${'$'}nqptp 2>/dev/null
+            wait
+        """.trimIndent()
+    }
+
+    private fun stopEngine() {
+        val process = engine ?: return
+        engine = null
+        runCatching { process.outputStream.close() }
+        repeat(50) {
+            if (process.exited()) return
+            Thread.sleep(100)
+        }
+        Log.w(TAG, "Root engine did not stop in time")
+        process.destroy()
+    }
+
+    // ponytail: plain blocking PCM pump; Shairport paces output, no sync feedback from AudioTrack.
+    private fun play(input: InputStream) {
+        val minimum = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                    .build(),
+            )
+            .setBufferSizeInBytes(maxOf(minimum, SAMPLE_RATE * BYTES_PER_FRAME / 5))
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+        try {
+            track.play()
+            val buffer = ByteArray(8192)
+            var pending = 0
+            while (true) {
+                val read = input.read(buffer, pending, buffer.size - pending)
+                if (read < 0) break
+                pending += read
+                val whole = pending - pending % BYTES_PER_FRAME
+                if (whole > 0) {
+                    track.write(buffer, 0, whole)
+                    buffer.copyInto(buffer, 0, whole, pending)
+                    pending -= whole
+                }
+            }
+        } finally {
+            runCatching { track.stop() }
+            track.release()
+        }
+    }
+
+    private fun config(preferences: SharedPreferences, name: String): String = """
+        general = {
+          name = ${quote(name)};
+          model = ${quote(value(preferences, MainActivity.PREF_MODEL, "AudioAccessory1,1"))};
+          interface = ${quote(value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))};
+          port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};
+          playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
+          output_backend = "stdout";
+          mdns_backend = "tinysvcmdns";
+        };
+        stdout = {
+          output_format = "S16_LE";
+          output_rate = $SAMPLE_RATE;
+          output_channels = 2;
+        };
+    """.trimIndent() + "\n"
+
+    private fun quote(value: String): String {
+        val escaped = value.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", " ")
+            .replace("\r", " ")
+        return "\"$escaped\""
+    }
+
+    private fun value(preferences: SharedPreferences, key: String, fallback: String): String =
+        preferences.getString(key, fallback).takeUnless { it.isNullOrBlank() } ?: fallback
+
+    private fun port(value: String) = if (MainActivity.isValidPort(value)) value.toInt() else 7000
 
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
+
+    private fun Process.exited(): Boolean = try {
+        exitValue()
+        true
+    } catch (_: IllegalThreadStateException) {
+        false
+    }
 
     private fun acquireMulticastLock() {
         val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
@@ -179,12 +237,12 @@ class ReceiverService : Service() {
         }
     }
 
-    private fun notifyForeground(text: Int) {
+    private fun notifyForeground(text: String) {
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    private fun buildNotification(text: Int): Notification {
+    private fun buildNotification(text: String): Notification {
         val openApp = PendingIntent.getActivity(
             this,
             0,
@@ -199,7 +257,7 @@ class ReceiverService : Service() {
         return builder
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(text))
+            .setContentText(text)
             .setContentIntent(openApp)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true)
@@ -207,45 +265,17 @@ class ReceiverService : Service() {
             .build()
     }
 
-    private fun writeConfig(): File {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val config = File(filesDir, "shairport-sync.conf")
-        OutputStreamWriter(FileOutputStream(config), StandardCharsets.UTF_8).use { writer ->
-            writer.write("general = {\n")
-            writeQuoted(writer, "name", value(preferences, MainActivity.PREF_SERVER_NAME, "Shairport AP2 Android"))
-            writeQuoted(writer, "model", value(preferences, MainActivity.PREF_MODEL, "AudioAccessory1,1"))
-            writeQuoted(writer, "service_type", "airplay2")
-            writeQuoted(writer, "output_backend", "audiotrack")
-            writeQuoted(writer, "mdns_backend", "tinysvcmdns")
-            writeQuoted(writer, "interface", value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))
-            writer.write("  port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};\n")
-            writeQuoted(writer, "playback_mode", value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))
-            writer.write("};\n")
-        }
-        return config
-    }
-
-    private fun writeQuoted(writer: Writer, key: String, value: String) {
-        val escaped = value.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", " ")
-            .replace("\r", " ")
-        writer.write("  $key = \"$escaped\";\n")
-    }
-
-    private fun value(
-        preferences: android.content.SharedPreferences,
-        key: String,
-        fallback: String,
-    ): String = preferences.getString(key, fallback).takeUnless { it.isNullOrBlank() } ?: fallback
-
-    private fun port(value: String) = if (MainActivity.isValidPort(value)) value.toInt() else 7000
-
     companion object {
         private const val TAG = "ShairportAP2"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000
+        private const val SAMPLE_RATE = 44100
+        private const val BYTES_PER_FRAME = 4 // S16_LE stereo
+        private const val CONFIG_FILE = "shairport-sync.conf"
+        private const val SHM_DIRECTORY = "nqptp-shm"
+        private const val DEFAULT_NAME = "Shairport AP2 Android"
+
 
         fun start(context: Context) {
             val intent = Intent(context, ReceiverService::class.java)
