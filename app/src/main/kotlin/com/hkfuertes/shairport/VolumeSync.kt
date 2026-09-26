@@ -1,4 +1,4 @@
-package com.hkfuertes.shairportap2
+package com.hkfuertes.shairport
 
 import android.content.Context
 import android.media.AudioManager
@@ -57,7 +57,7 @@ class VolumeSync(context: Context) {
     }
 
     companion object {
-        private const val TAG = "ShairportAP2"
+        private const val TAG = "Shairport"
 
         /** AirPlay volume is -144 (mute) or -30..0 dB, linear on the sender's slider. */
         fun toIndex(airplayVolume: Double, max: Int): Int =

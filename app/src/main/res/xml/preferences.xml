@@ -8,7 +8,6 @@
 
     <PreferenceCategory android:title="@string/receiver_category">
         <SwitchPreference
-            android:defaultValue="true"
             android:key="receiver_enabled"
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
@@ -16,35 +15,29 @@
 
     <PreferenceCategory android:title="@string/configuration_category">
         <EditTextPreference
-            android:defaultValue="Shairport AP2 Android"
             android:key="server_name"
             android:summary="@string/server_name_summary"
             android:title="@string/server_name_title" />
         <EditTextPreference
-            android:defaultValue="AudioAccessory1,1"
             android:key="model"
             android:summary="@string/model_summary"
             android:title="@string/model_title" />
         <EditTextPreference
-            android:defaultValue="wlan0"
             android:key="network_interface"
             android:summary="@string/interface_summary"
             android:title="@string/interface_title" />
         <EditTextPreference
-            android:defaultValue="7000"
             android:inputType="number"
             android:key="port"
             android:summary="@string/port_summary"
             android:title="@string/port_title" />
         <ListPreference
-            android:defaultValue="aaudio"
             android:entries="@array/audio_output_entries"
             android:entryValues="@array/audio_output_values"
             android:key="audio_output"
             android:summary="@string/audio_output_summary"
             android:title="@string/audio_output_title" />
         <ListPreference
-            android:defaultValue="stereo"
             android:entries="@array/playback_mode_entries"
             android:entryValues="@array/playback_mode_values"
             android:key="playback_mode"

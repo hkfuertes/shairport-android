@@ -1,4 +1,4 @@
-package com.hkfuertes.shairportap2
+package com.hkfuertes.shairport
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -20,7 +20,6 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.preference.PreferenceManager
 import android.util.Log
 import java.io.File
 import java.io.InputStream
@@ -35,41 +34,41 @@ class ReceiverService : Service() {
     @Volatile private var engine: Process? = null
     private var engineConfig: String? = null
 
+    /** Wi-Fi IPv4 the running engine started with (null: none, or Wi-Fi was lost since). */
+    @Volatile private var engineAddress: String? = null
+
     /**
-     * TinySVCmDNS advertises the address Shairport started with, so a new Wi-Fi address
-     * (or a reconnect after losing Wi-Fi) needs a fresh engine.
+     * TinySVCmDNS advertises the address Shairport started with, so an engine started without
+     * Wi-Fi (e.g. at boot), a new address, or a reconnect after losing Wi-Fi needs a fresh one.
      */
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
-        private var address: String? = null
-        private var lost = false
-
         override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
             val ipv4 = properties.linkAddresses.firstOrNull { it.address is Inet4Address }
                 ?.address?.hostAddress ?: return
-            if (ipv4 == address) return
-            val firstSeen = address == null && !lost
-            address = ipv4
-            lost = false
-            if (!firstSeen) {
-                Log.i(TAG, "Wi-Fi address is now $ipv4; restarting the engine")
-                // After a reconnect the POCO filters multicast again although the lock is held;
-                // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
-                multicastLock?.run {
-                    release()
-                    acquire()
-                }
-                onWorker { restartEngine() }
+            if (ipv4 == engineAddress) return
+            // After a reconnect the POCO filters multicast again although the lock is held;
+            // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
+            multicastLock?.run {
+                release()
+                acquire()
             }
+            onWorker { restartEngine() }
         }
 
         override fun onLost(network: Network) {
-            address = null
-            lost = true
+            engineAddress = null // the next address, even the same one, needs a fresh engine
         }
+    }
+
+    /** Applies setting changes from any source (settings screen or adb's SettingsReceiver). */
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+        if (key == Prefs.RECEIVER_ENABLED && !preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) stopSelf()
+        else onWorker { startEngine() } // no-op unless the resulting configuration changed
     }
 
     override fun onCreate() {
         super.onCreate()
+        Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
         createNotificationChannel()
         acquireMulticastLock()
         volumeSync = VolumeSync(this).also { it.start() }
@@ -87,6 +86,7 @@ class ReceiverService : Service() {
 
     override fun onDestroy() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(wifiCallback) }
+        Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
         onWorker {
             stopEngine()
             // ponytail: after a crash/force-stop this stays on until the next normal stop.
@@ -106,16 +106,28 @@ class ReceiverService : Service() {
     }
 
     private fun restartEngine() {
+        val address = wifiAddress()
+        if (engine != null && engineAddress != null && engineAddress == address) return
+        Log.i(TAG, "Wi-Fi address is now $address; restarting the engine")
         engineConfig = null
         startEngine()
     }
 
+    @Suppress("DEPRECATION") // allNetworks: simplest way to read the current Wi-Fi address once
+    private fun wifiAddress(): String? {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        return connectivity.allNetworks.firstNotNullOfOrNull { network ->
+            if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) null
+            else connectivity.getLinkProperties(network)?.linkAddresses
+                ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress
+        }
+    }
+
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val name = value(preferences, MainActivity.PREF_SERVER_NAME, DEFAULT_NAME)
-        val aaudio = AAUDIO_AVAILABLE &&
-            value(preferences, MainActivity.PREF_AUDIO_OUTPUT, "aaudio") == "aaudio"
+        val preferences = Prefs.get(this)
+        val name = value(preferences, Prefs.SERVER_NAME)
+        val aaudio = AAUDIO_AVAILABLE && value(preferences, Prefs.AUDIO_OUTPUT) == "aaudio"
         val config = config(preferences, name, aaudio)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
@@ -136,6 +148,7 @@ class ReceiverService : Service() {
             return
         }
 
+        engineAddress = wifiAddress()
         val process = try {
             ProcessBuilder("su", "-c", supervisorScript()).start()
         } catch (error: Exception) {
@@ -286,10 +299,10 @@ class ReceiverService : Service() {
     private fun config(preferences: SharedPreferences, name: String, aaudio: Boolean): String = """
         general = {
           name = ${quote(name)};
-          model = ${quote(value(preferences, MainActivity.PREF_MODEL, "AudioAccessory1,1"))};
-          interface = ${quote(value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))};
-          port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};
-          playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
+          model = ${quote(value(preferences, Prefs.MODEL))};
+          interface = ${quote(value(preferences, Prefs.NETWORK_INTERFACE))};
+          port = ${port(value(preferences, Prefs.PORT))};
+          playback_mode = ${quote(value(preferences, Prefs.PLAYBACK_MODE))};
           output_backend = ${if (aaudio) "\"aaudio\"" else "\"stdout\""};
           mdns_backend = "tinysvcmdns";
           ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
@@ -318,10 +331,12 @@ class ReceiverService : Service() {
         return "\"$escaped\""
     }
 
-    private fun value(preferences: SharedPreferences, key: String, fallback: String): String =
-        preferences.getString(key, fallback).takeUnless { it.isNullOrBlank() } ?: fallback
+    /** A text setting; blank (e.g. a cleared name) falls back to its default. */
+    private fun value(preferences: SharedPreferences, key: String): String =
+        preferences.getString(key, null).takeUnless { it.isNullOrBlank() }
+            ?: Prefs.defaults(this)[key] as String
 
-    private fun port(value: String) = if (MainActivity.isValidPort(value)) value.toInt() else 7000
+    private fun port(value: String) = if (Prefs.isValidPort(value)) value.toInt() else 7000
 
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
 
@@ -381,7 +396,7 @@ class ReceiverService : Service() {
     }
 
     companion object {
-        private const val TAG = "ShairportAP2"
+        private const val TAG = "Shairport"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000
@@ -391,7 +406,6 @@ class ReceiverService : Service() {
         private const val BYTES_PER_FRAME = 4 // S16_LE stereo
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"
-        private const val DEFAULT_NAME = "Shairport AP2 Android"
         private const val MIN_UPTIME_FOR_RESTART_MS = 30_000L
         private const val RESTART_DELAY_MS = 2_000L
 

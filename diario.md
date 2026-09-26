@@ -165,3 +165,32 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - Morning AAudio session log: "AirPlay 2 Buffered playback ... AAC/48000/F24/2 -> 48000/S16_LE/2",
   first stats line Av Sync Error 3.2 ms, Net Sync 993 ppm (first line only, buffer rotated;
   need a longer session to judge).
+
+## 2026-09-26 (day) — branch feat/device-name-adb-config
+
+- Renamed everything to "Shairport": label, notification channel, log tag `Shairport`,
+  namespace/applicationId/Kotlin package `com.hkfuertes.shairport`, Gradle root project.
+  Old package uninstalled from the POCO (Magisk dropped its policy); new UID 10208 granted
+  through Magisk's prompt.
+- `Prefs.kt`: single source of keys/defaults (XML defaultValues removed). Default advertised
+  name = Settings.Global.DEVICE_NAME ("Xiaomi Pocophone F1"; `ro.product.name` is
+  `lineage_beryllium` here), fallback manufacturer + model.
+- "Root access" row is disabled once root is granted.
+- adb configuration like jqssun/android-airplay-server#46: `SettingsReceiver` (DUMP-protected),
+  CONFIGURE_SETTINGS / LIST_SETTINGS; rejects unknown keys, wrong types, bad ports and values
+  outside list choices. The service listens to the preferences and applies changes itself.
+  Verified: rename -> engine restarts cleanly, mDNS shows the new name; receiver_enabled
+  false stops the service.
+- 11:52 `magisk --sqlite "PRAGMA table_info(policies)"` CRASHED magiskd (Magisk 30.7): root
+  lost ("Cannot connect to daemon"), running engine unaffected; only a reboot restores it.
+  After reboot: headless root grant verified with REPLACE INTO policies (deny -> su exit 13,
+  grant -> uid=0). Use only SELECT/REPLACE/DELETE.
+- Root can start the non-exported service: `su -c am start-foreground-service -n
+  com.hkfuertes.shairport/.ReceiverService` (no activity needed).
+- Boot bug found & fixed: an engine started before Wi-Fi has an address (boot) was never
+  restarted (first address counted as "already seen"). Now the service remembers the
+  address the engine started with and restarts when Wi-Fi's differs or after a loss;
+  restartEngine skips if the engine already serves the current address.
+- Verified with a Magisk service.d script across a reboot: first engine exits (no IP),
+  Wi-Fi arrives 3 s later -> restart -> advertised, TCP :7000 OK. README "Headless setup"
+  commands executed verbatim. Script removed from the POCO afterwards (opt-in via README).

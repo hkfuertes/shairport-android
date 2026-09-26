@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "shairport-ap2-android"
+rootProject.name = "shairport"
 include(":app")
