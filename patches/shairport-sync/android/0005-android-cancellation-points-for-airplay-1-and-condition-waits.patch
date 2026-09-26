@@ -1,0 +1,132 @@
+--- a/activity_monitor.c	2026-09-26 04:45:44.648521925 +0200
++++ b/activity_monitor.c	2026-09-26 04:45:44.664522021 +0200
+@@ -164,15 +164,21 @@
+     switch (state) {
+     case am_inactive:
+       debug(2, "am_state: am_inactive");
+-      while (player_state != ps_active)
++      while (player_state != ps_active) {
++        pthread_testcancel(); // Bionic: the cancel shim only makes the wait return early
+         pthread_cond_wait(&activity_monitor_cv, &activity_monitor_mutex);
++        pthread_testcancel();
++      }
+       // state = am_active; this is done by the activity_monitor_signify_activity(1) function
+       debug(2, "am_state: am_active");
+       break;
+     case am_active:
+       // debug(1,"am_state: am_active");
+-      while (player_state != ps_inactive)
++      while (player_state != ps_inactive) {
++        pthread_testcancel();
+         pthread_cond_wait(&activity_monitor_cv, &activity_monitor_mutex);
++        pthread_testcancel();
++      }
+ 
+       // if it's not already am_inactive, the it should be beginning to time out...
+       if (state != am_inactive) {
+@@ -202,6 +208,7 @@
+ #ifdef COMPILE_FOR_LINUX_AND_FREEBSD_AND_CYGWIN_AND_OPENBSD
+         rc = pthread_cond_timedwait(&activity_monitor_cv, &activity_monitor_mutex,
+                                     &time_for_wait); // this is a pthread cancellation point
++        pthread_testcancel(); // not on Bionic
+ #endif
+ #ifdef COMPILE_FOR_OSX
+         rc = pthread_cond_timedwait_relative_np(&activity_monitor_cv, &activity_monitor_mutex,
+--- a/metadata/pc_queue.c	2026-09-26 04:45:44.656521973 +0200
++++ b/metadata/pc_queue.c	2026-09-26 04:45:44.672522069 +0200
+@@ -142,7 +142,9 @@
+       debug(1, "metadata queue \"%s\": error locking for pc_queue_get_item", the_queue->name);
+     pthread_cleanup_push(pc_queue_cleanup_handler, (void *)the_queue);
+     while (the_queue->count == 0) {
++      pthread_testcancel(); // Bionic: the cancel shim only makes the wait return early
+       rc = pthread_cond_wait(&the_queue->pc_queue_item_added_signal, &the_queue->pc_queue_lock);
++      pthread_testcancel();
+       if (rc)
+         debug(1, "metadata queue \"%s\": error waiting for item to be added", the_queue->name);
+     }
+--- a/rtp.c	2026-09-26 04:45:44.644521901 +0200
++++ b/rtp.c	2026-09-26 04:45:44.664522021 +0200
+@@ -64,6 +64,18 @@
+ #include "FFTConvolver/convolver.h"
+ #endif
+ 
++#ifdef __ANDROID__
++// Bionic has no pthread cancellation. Do not let a cooperative cancellation
++// request wait indefinitely for a silent AirPlay 1 or 2 socket to receive another packet.
++static int android_wait_for_ap2_packet(int socket_fd) {
++  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
++  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
++  int rc = poll(&poll_fd, 1, 250);
++  pthread_testcancel();
++  return rc > 0;
++}
++#endif
++
+ struct Nvll {
+   char *name;
+   double value;
+@@ -212,7 +224,12 @@
+ 
+   ssize_t nread;
+   while (1) {
++#ifdef __ANDROID__
++    if (!android_wait_for_ap2_packet(conn->audio_socket))
++      continue;
++#endif
+     nread = recv(conn->audio_socket, packet, sizeof(packet), 0);
++    pthread_testcancel();
+ 
+     uint64_t local_time_now_ns = get_absolute_time_in_ns();
+     if (time_of_previous_packet_ns) {
+@@ -336,7 +353,12 @@
+   uint32_t sync_rtp_timestamp;
+   ssize_t nread;
+   while (1) {
++#ifdef __ANDROID__
++    if (!android_wait_for_ap2_packet(conn->control_socket))
++      continue;
++#endif
+     nread = recv(conn->control_socket, packet, sizeof(packet), 0);
++    pthread_testcancel();
+     if (nread >= 0) {
+       if ((config.diagnostic_drop_packet_fraction == 0.0) ||
+           (drand48() > config.diagnostic_drop_packet_fraction)) {
+@@ -658,6 +680,7 @@
+       usleep(300000); // these are thread cancellation points
+     else
+       usleep(3000000);
++    pthread_testcancel(); // not on Bionic: SIGUSR1 only interrupts the sleep
+   }
+   debug(3, "rtp_timing_sender thread interrupted. This should never happen.");
+   pthread_cleanup_pop(0); // don't execute anything here.
+@@ -757,7 +780,12 @@
+   // double stat_M2 = 0.0;
+ 
+   while (1) {
++#ifdef __ANDROID__
++    if (!android_wait_for_ap2_packet(conn->timing_socket))
++      continue;
++#endif
+     nread = recv(conn->timing_socket, packet, sizeof(packet), 0);
++    pthread_testcancel();
+     if (conn->udp_clock_is_initialised == 0) {
+       debug(2, "AP1 clock receiver thread: initialised.");
+       local_to_remote_time_jitter = 0;
+@@ -1619,17 +1647,6 @@
+   }
+ }
+ 
+-#ifdef __ANDROID__
+-// Bionic has no pthread cancellation. Do not let a cooperative cancellation
+-// request wait indefinitely for a silent AP2 socket to receive another packet.
+-static int android_wait_for_ap2_packet(int socket_fd) {
+-  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
+-  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
+-  int rc = poll(&poll_fd, 1, 250);
+-  pthread_testcancel();
+-  return rc > 0;
+-}
+-#endif
+ 
+ void *rtp_ap2_control_receiver(void *arg) {
+   const int32_t ap2_realttime_stream_latency_fudge_factor = 11025; // seems to bring everything into sync

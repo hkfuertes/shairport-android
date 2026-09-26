@@ -20,7 +20,8 @@ for patch_file in \
   "$root"/patches/shairport-sync/0001-*.patch \
   "$root"/patches/shairport-sync/0002-*.patch \
   "$root"/patches/shairport-sync/0003-*.patch \
-  "$root"/patches/shairport-sync/0004-*.patch; do
+  "$root"/patches/shairport-sync/0004-*.patch \
+  "$root"/patches/shairport-sync/0005-*.patch; do
   apply "$shairport" "$patch_file"
 done
 for patch_file in "$root"/patches/nqptp/*.patch; do

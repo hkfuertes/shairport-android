@@ -133,3 +133,14 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
    DACP en AirPlay 2 (entonces habría que ir al canal de eventos AP2/MRP).
 4. Sincronía: las líneas de estadísticas de Shairport salen en el mismo logcat.
 5. Pantalla apagada: debería seguir visible y conectable (hi-perf Wi-Fi forzado).
+- 05:00 **Shairport never exited on SIGTERM**, even idle (every stop needed the 3 s
+  SIGKILL, so no mDNS goodbyes): exit_function -> activity_monitor_stop joins a thread
+  in pthread_cond_wait (Bionic: the shim's SIGUSR1 only causes a spurious wake-up, the
+  loop waits again); same for the metadata queue thread; classic AirPlay receivers block
+  in recv(). Patch android/0005 adds testcancel around those waits and reuses the AP2
+  poll-with-ceiling helper for the AP1 receivers. Verified: idle and with a live AP1
+  session (pyatv, output to /dev/null) SIGTERM exits in <500 ms.
+- Clean exit then hit SIGABRT (Scudo "misaligned pointer") in mdnsd_stop: tinysvcmdns
+  rr_create_aaaa() kept a pointer into getifaddrs() memory (freed after registration =
+  use-after-free in AAAA answers) and free()d it at shutdown. Patch 0005 copies it.
+  Verified: engine restart logs "shairport-sync exited: 0" in ~70 ms; A/AAAA OK.
