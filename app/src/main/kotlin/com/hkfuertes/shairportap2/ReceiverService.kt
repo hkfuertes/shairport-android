@@ -208,8 +208,8 @@ class ReceiverService : Service() {
             ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 3>&- 4<&- &
             shairport=${'$'}!
             exec 3>&-
-            # Bionic can't cancel threads blocked in recvfrom(), so a live session can hang
-            # Shairport's exit (pthread_join chain): SIGKILL it if SIGTERM didn't work in 3 s.
+            # Safety net: Bionic has no real pthread cancellation, so if some wait we have not
+            # patched (android/0005) still blocks Shairport's exit, SIGKILL it after 3 s.
             { read -r _ <&4; kill ${'$'}shairport; sleep 3; kill -9 ${'$'}shairport; } 2>/dev/null &
             watcher=${'$'}!
             exec 4<&-
