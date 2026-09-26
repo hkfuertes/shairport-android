@@ -24,6 +24,7 @@ import java.util.concurrent.Executors
 class ReceiverService : Service() {
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private var multicastLock: WifiManager.MulticastLock? = null
+    private lateinit var volumeSync: VolumeSync
     @Volatile private var engine: Process? = null
     private var engineConfig: String? = null
 
@@ -31,6 +32,7 @@ class ReceiverService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireMulticastLock()
+        volumeSync = VolumeSync(this).also { it.start() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -40,8 +42,13 @@ class ReceiverService : Service() {
     }
 
     override fun onDestroy() {
-        worker.execute { stopEngine() }
+        worker.execute {
+            stopEngine()
+            // ponytail: after a crash/force-stop this stays on until the next normal stop.
+            runCatching { ProcessBuilder("su", "-c", "cmd wifi force-hi-perf-mode disabled").start() }
+        }
         worker.shutdown()
+        volumeSync.stop()
         multicastLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
@@ -100,9 +107,10 @@ class ReceiverService : Service() {
     }
 
     /**
-     * Runs as root. NQPTP and Shairport are children of this shell; closing its stdin
-     * (normal stop, or the app process dying) makes `read` return and stops both.
-     * Only Shairport keeps the original stdout, so the app sees EOF when it exits.
+     * Runs as root; lives exactly as long as Shairport. A watcher stops Shairport when the
+     * app closes our stdin (normal stop, or the app process dying). The app only sees EOF on
+     * the audio pipe once this whole script exits, because Magisk's su client keeps its own
+     * copy of stdout open until then.
      */
     private fun supervisorScript(): String {
         val userId = android.os.Process.myUid() / PER_USER_RANGE
@@ -110,17 +118,39 @@ class ReceiverService : Service() {
         val libraries = applicationInfo.nativeLibraryDir
         val shm = shellQuote("$rootFiles/$SHM_DIRECTORY")
         return """
-            exec 3>&1 1>&2
+            trap '' PIPE # the app (our stderr reader) may already be dead
+            exec 3>&1 1>&2 4<&0 0</dev/null
+            # One engine at a time: the previous one may still be shutting down (app restart).
+            old=${'$'}(pidof libshairport_sync.so libnqptp.so)
+            if [ -n "${'$'}old" ]; then
+              kill ${'$'}old 2>/dev/null
+              i=0
+              while kill -0 ${'$'}old 2>/dev/null && [ ${'$'}i -lt 30 ]; do sleep 0.1; i=${'$'}((i + 1)); done
+              kill -9 ${'$'}old 2>/dev/null
+            fi
+            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still
+            # works), so senders see us but can't connect. App Wi-Fi locks can't prevent it
+            # on API 34+; root can. Turned off again when the service stops normally.
+            cmd wifi force-hi-perf-mode enabled >/dev/null 2>&1
             export NQPTP_SHM_DIRECTORY=$shm
             rm -f $shm/nqptp
-            ${shellQuote("$libraries/libnqptp.so")} & nqptp=${'$'}!
+            ${shellQuote("$libraries/libnqptp.so")} 3>&- 4<&- & nqptp=${'$'}!
             i=0
             while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
-            ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 &
+            ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 3>&- 4<&- &
             shairport=${'$'}!
             exec 3>&-
-            read -r _ || true
-            kill ${'$'}shairport ${'$'}nqptp 2>/dev/null
+            # Bionic can't cancel threads blocked in recvfrom(), so a live session can hang
+            # Shairport's exit (pthread_join chain): SIGKILL it if SIGTERM didn't work in 3 s.
+            { read -r _ <&4; kill ${'$'}shairport; sleep 3; kill -9 ${'$'}shairport; } 2>/dev/null &
+            watcher=${'$'}!
+            exec 4<&-
+            wait ${'$'}shairport
+            status=${'$'}?
+            kill ${'$'}watcher ${'$'}nqptp 2>/dev/null
+            echo "shairport-sync exited: ${'$'}status"
+            sleep 1
+            kill -9 ${'$'}nqptp 2>/dev/null
             wait
         """.trimIndent()
     }
@@ -187,6 +217,13 @@ class ReceiverService : Service() {
           playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
           output_backend = "stdout";
           mdns_backend = "tinysvcmdns";
+          ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
+        };
+        metadata = {
+          enabled = "yes";
+          include_cover_art = "no";
+          socket_address = "127.0.0.1";
+          socket_port = ${volumeSync.port};
         };
         stdout = {
           output_format = "S16_LE";

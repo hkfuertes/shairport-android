@@ -23,6 +23,11 @@ for abi in armeabi-v7a arm64-v8a; do
     echo "missing Android NDK compiler: $cc" >&2
     exit 1
   }
+  if [ -x "$out/libnqptp.so" ] && [ -z "$(find "$source" "$0" -newer "$out/libnqptp.so" \
+    \( -name '*.[ch]' -o -name '*.ac' -o -name '*.am' -o -name '*.sh' \) ! -name config.h -print -quit)" ]; then
+    printf 'up to date %s\n' "$out/libnqptp.so"
+    continue
+  fi
 
   cd "$source"
   make distclean >/dev/null 2>&1 || true

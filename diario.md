@@ -55,3 +55,33 @@ Found:
 - 02:00 **USER CONFIRMED: audio from iPhone works great.** User asleep: DO NOT PLAY
   ANY SOUND (no pyatv/stream tests). Next request: bidirectional volume sync
   (Android volume keys -> iPhone slider, iPhone slider -> Android stream volume).
+- 02:05 Volume sync design: Shairport `ignore_volume_control` + metadata over UDP
+  (`--with-metadata-multicast`, socket 127.0.0.1:<app port>) -> `pvol` sets
+  STREAM_MUSIC; Android VOLUME_CHANGED -> DACP `setproperty?dmcp.device-volume=`
+  (same command Shairport's D-Bus/MPRIS use) to `clip` IP + port resolved from
+  `iTunes_Ctrl_<DACP-ID>._dacp._tcp` via NsdManager. Upstream has no AP2 event-channel
+  volume notification (`ap2_event_send_unit_volume_notification` declared, never
+  implemented in any branch). Android->iPhone UNVERIFIED (needs iPhone; Shairport docs
+  say DACP remote control is "Classic AirPlay only").
+- Patch android/0004: Bionic has no `bzero` (metadata/multicast.c).
+- Bugs fixed: (1) Shairport hangs on SIGTERM with a stuck session (pthread_join chain
+  waiting on threads in recvfrom; Bionic can't cancel) -> watcher SIGKILLs after 3 s.
+  (2) Magisk su client keeps stdout open -> app sees EOF only when supervisor exits ->
+  supervisor now lives exactly as long as Shairport (`wait $shairport`). (3) NQPTP
+  inherited fd 3 (audio pipe). (4) SIGPIPE on echo after app death killed the
+  supervisor before it killed NQPTP -> `trap '' PIPE`. (5) getLoopbackAddress() = ::1.
+- Verified (no sound): kill -9 shairport -> supervisor exits, NQPTP gone, app notices;
+  force-stop -> nothing left; simulated `pvol -15` -> music 13/25; simulated
+  daid/acre + volume change -> NSD resolve attempted. Volume restored to 25/25.
+- Shell `cmd media_session volume --set` is blocked by appops on this ROM; use `su -c`.
+- 03:05 Found: screen off -> Wi-Fi power save, host ping 100% loss / 60-860 ms RTT,
+  mDNS unanswered (not Doze: charging, deviceidle ACTIVE; kernel wakelock didn't help).
+  Adding WIFI_MODE_FULL_HIGH_PERF WifiLock.
+- 03:20 App-held WifiLock HIGH_PERF is silently downgraded to LOW_LATENCY on API 34+
+  (type=4, screen-on only) -> useless. Root `cmd wifi force-hi-perf-mode enabled`
+  fixes it: screen off, TCP :7000 went from 5/5 FAIL to 5/5 OK (~123 ms), mDNS OK.
+  (Without it mDNS still answered but TCP/ARP didn't: senders would see us, not connect.)
+  Supervisor enables it; service onDestroy disables it (crash/force-stop leaves it on).
+- 03:25 Race: new engine started while the killed app's old NQPTP was still dying ->
+  port 319 busy -> Shairport fell back to classic mode. Supervisor now kills leftovers
+  by name (`pidof`, never `pkill -f`: it matches the supervisor's own command line).
