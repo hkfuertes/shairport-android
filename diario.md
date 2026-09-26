@@ -323,5 +323,9 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   AirPlay 2 advertised. Audio: cliraop sessions (silence) -> "Classic AirPlay playback,
   ALAC/44100", AAudio sync error -0.07 ms, window 0.15 ms; "Can not set realtime properties
   of thread player_1" (no SCHED_FIFO as an app).
+- Also verified: kill -9 of the app's main process takes the engine (unbound) and NQPTP (stdin
+  EOF) with it, and START_STICKY brings all three back within 2 s. Wi-Fi off/on (`svc wifi`):
+  same engine and NQPTP (no restart any more), NsdManager re-advertises both services and a
+  cliraop session plays right after.
 - Not verified yet: iPhone playback (AirPlay 2 realtime/buffered), grouping from iOS (TXT
   re-registration through NsdManager), the plugin inside Kiosk Satellite.
