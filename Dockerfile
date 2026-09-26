@@ -2,7 +2,7 @@
 # The whole build. Upstream sources are downloaded here at pinned versions and checked against
 # the checksums below; the repository keeps only its own code and patches (native/patches).
 #
-#   make                  APK + Kiosk Satellite plugin in build/ (default target: out)
+#   make                  release APK + Kiosk Satellite plugin in build/ (default target: out)
 #   make jnilibs          engine only, in build/jniLibs, for Gradle outside Docker
 #   make src              the patched Shairport Sync and NQPTP sources, in build/src
 #
@@ -103,10 +103,11 @@ COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle gradle
 COPY app app
 COPY --from=engine /out build/jniLibs
-# make passes the host's debug keystore, so the signature (and adb install -r) stays stable.
+# The release APK is signed with the debug key; make passes the host's, so the signature (and
+# adb install -r) stays stable.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
-    ./gradlew --no-daemon --console=plain :app:assembleDebug
+    ./gradlew --no-daemon --console=plain :app:assembleRelease
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin
@@ -125,5 +126,5 @@ FROM scratch AS plugin-out
 COPY --from=plugin /plugin/dist/*.zip /plugin/dist/*.zip.sha256 /plugin/dist/kiosk-satellite-plugin.json /
 
 FROM scratch AS out
-COPY --from=apk /work/app/build/outputs/apk/debug/app-debug.apk /
+COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk /
 COPY --from=plugin-out / /kiosk-plugin/

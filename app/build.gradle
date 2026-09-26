@@ -19,6 +19,14 @@ android {
         }
     }
 
+    buildTypes {
+        release {
+            // ponytail: debug key, so it upgrades a debug install and keeps ANDROID_ID (the AirPlay
+            // device ID). A real key when the APK is published.
+            signingConfig signingConfigs.debug
+        }
+    }
+
     sourceSets {
         main {
             jniLibs.srcDirs('../build/jniLibs') // from the Dockerfile (make / make jnilibs)

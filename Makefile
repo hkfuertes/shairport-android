@@ -10,7 +10,7 @@ all:
 	docker build $(secret) --output build .
 
 install: all
-	adb install -r build/app-debug.apk
+	adb install -r build/app-release.apk
 
 plugin:
 	docker build --target plugin-out --output build/kiosk-plugin .
