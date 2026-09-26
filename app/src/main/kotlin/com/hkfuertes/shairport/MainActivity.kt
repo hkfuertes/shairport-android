@@ -31,21 +31,19 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             checkRoot()
             true
         }
-        // Only these need root: their switches turn on once su is granted (Magisk may prompt).
-        for (key in ROOT_FEATURES) {
-            findPreference(key).setOnPreferenceChangeListener { preference, value ->
-                if (value != true) return@setOnPreferenceChangeListener true
-                checkRoot { (preference as SwitchPreference).isChecked = true }
-                false
-            }
+        // Only AirPlay 2 needs root: the switch turns on once su is granted (Magisk may prompt).
+        findPreference(Prefs.AIRPLAY_2).setOnPreferenceChangeListener { preference, value ->
+            if (value != true) return@setOnPreferenceChangeListener true
+            checkRoot { (preference as SwitchPreference).isChecked = true }
+            false
         }
         statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
         refreshModel()
 
         requestNotificationPermission()
         if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
-        // Asking su without need would make Magisk prompt users who never wanted root features.
-        if (ROOT_FEATURES.any { preferences.getBoolean(it, false) }) checkRoot()
+        // Asking su without need would make Magisk prompt users who never wanted AirPlay 2.
+        if (preferences.getBoolean(Prefs.AIRPLAY_2, false)) checkRoot()
         else rootPreference.setSummary(R.string.root_access_not_requested)
     }
 
@@ -107,7 +105,6 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
         when (key) {
-            Prefs.START_AT_BOOT -> Thread({ BootScript.sync(this) }, "boot-script").start()
             Prefs.AIRPLAY_2 -> {
                 refreshModel()
                 refreshStatus()
@@ -194,6 +191,5 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val PREF_STATUS = "status"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
-        private val ROOT_FEATURES = listOf(Prefs.AIRPLAY_2, Prefs.START_AT_BOOT)
     }
 }

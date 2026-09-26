@@ -71,10 +71,10 @@ Turning the receiver on over adb only takes effect when the receiver is next sta
 
 ## Headless setup
 
-The whole setup works over adb, with no screen interaction. Root is only needed for AirPlay 2 and for starting at boot; steps 2 and 5 assume a Magisk-rooted device whose adb shell already has root (Magisk > Superuser > Shell allowed). Verified on the POCO F1 with Magisk 30.7.
+The whole setup works over adb, with no screen interaction. Root is only needed for AirPlay 2; step 2 assumes a Magisk-rooted device whose adb shell already has root (Magisk > Superuser > Shell allowed). Verified on the POCO F1 with Magisk 30.7.
 
 1. Install: `adb install app-debug.apk`.
-2. For AirPlay 2 or start at boot, grant the app root without Magisk's prompt, by writing Magisk's policy database (`policy` 2 = grant, 1 = deny; `until` 0 = forever; the last two columns are Magisk's log and toast):
+2. For AirPlay 2, grant the app root without Magisk's prompt, by writing Magisk's policy database (`policy` 2 = grant, 1 = deny; `until` 0 = forever; the last two columns are Magisk's log and toast):
 
    ```sh
    uid=$(adb shell cmd package list packages -U com.hkfuertes.shairport | sed 's/.*uid://' | tr -d '\r')
@@ -89,22 +89,11 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
    adb shell am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService
    ```
 
-5. Start it at every boot with a Magisk `service.d` script, which runs as root. The app's "Start at boot" switch (or `--es key start_at_boot --ez value true` over adb) writes and removes exactly this script. By hand:
-
-   ```sh
-   cat > shairport.sh <<'SCRIPT'
-   #!/system/bin/sh
-   # Start the Shairport AirPlay receiver at boot (Magisk service.d, runs as root).
-   until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
-   am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService
-   SCRIPT
-   adb push shairport.sh /data/local/tmp/
-   adb shell su -c "'mkdir -p /data/adb/service.d && cp /data/local/tmp/shairport.sh /data/adb/service.d/ && chmod 755 /data/adb/service.d/shairport.sh'"
-   ```
+5. Start it at every boot: `--es key start_at_boot --ez value true` (the "Start at boot" switch). The app starts the receiver on `BOOT_COMPLETED`, which on a device with a secure lock screen arrives after the first unlock. Older versions used a Magisk `service.d` script instead; remove a leftover one with `adb shell su -c 'rm -f /data/adb/service.d/shairport.sh'`.
 
 ## Kiosk Satellite plugin
 
-[`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2 or Start at boot, as above), and it keeps running the receiver. The plugin uses the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
+[`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and it keeps running the receiver. The plugin uses the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
 - Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Start at boot. The status line says whether the receiver runs as AirPlay 2 or classic AirPlay. They show the app's current values, including changes made in the app itself.
 - Home Assistant (ESPHome with native entities enabled in Kiosk Satellite): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).

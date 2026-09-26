@@ -329,3 +329,16 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   cliraop session plays right after.
 - Not verified yet: iPhone playback (AirPlay 2 realtime/buffered), grouping from iOS (TXT
   re-registration through NsdManager), the plugin inside Kiosk Satellite.
+
+## 2026-09-26 (evening) — branch feat/boot-completed
+
+- User decision: start at boot without root. ReceiverService becomes a `connectedDevice`
+  foreground service (Android 15 forbids mediaPlayback ones from BOOT_COMPLETED; its
+  prerequisite is met by CHANGE_WIFI_MULTICAST_STATE) and a BootReceiver starts it when
+  "Start at boot" is on. BootScript and the Magisk service.d script are gone; su is now only
+  for NQPTP. Boot chain with AirPlay 2: Android -> BOOT_COMPLETED -> app -> su (Magisk) -> NQPTP
+  -> Shairport in :engine.
+- Verified on the POCO (no lock-screen credential): removed the old service.d script,
+  `dumpsys activity services` shows types=0x10 (connectedDevice); reboot -> boot_completed in
+  29 s, "Start proc ... for broadcast {...BootReceiver}", engine and NQPTP (root) up 40 s after
+  the reboot, mode=airplay2. AirPlay 2 was switched back off afterwards (user's setting).

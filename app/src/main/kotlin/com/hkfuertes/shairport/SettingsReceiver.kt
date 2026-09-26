@@ -23,10 +23,6 @@ class SettingsReceiver : BroadcastReceiver() {
             ACTION_CONFIGURE -> {
                 val result = configure(context, intent, preferences)
                 publish(result, "Updated")
-                if (result.getOrNull() == Prefs.START_AT_BOOT) { // installing the script needs su
-                    val pending = goAsync()
-                    Thread({ BootScript.sync(context); pending.finish() }, "boot-script").start()
-                }
             }
             ACTION_LIST -> publish(list(context, preferences), "Settings")
             ACTION_STATUS -> { // polled by the Kiosk Satellite plugin: no log line per call

@@ -16,7 +16,7 @@
     {"key": "server_name", "type": "string", "title": "Name", "default": "", "description": "Name shown in the AirPlay list. Empty: the Android device name."},
     {"key": "model", "type": "select", "title": "Model", "default": "HomePod", "options": ["Generic", "HomePod", "HomePod mini"], "description": "Advertised model: the icon senders show. AirPlay 2 only; classic AirPlay is Generic."},
     {"key": "playback_mode", "type": "select", "title": "Playback mode", "default": "Stereo", "options": ["Stereo", "Mono"]},
-    {"key": "start_at_boot", "type": "boolean", "title": "Start at boot", "default": false, "description": "Installs the app's Magisk service.d boot script."}
+    {"key": "start_at_boot", "type": "boolean", "title": "Start at boot", "default": false, "description": "Starts the receiver after every reboot."}
   ],
   "commands": []
 }
