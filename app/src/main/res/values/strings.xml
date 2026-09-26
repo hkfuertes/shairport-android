@@ -5,8 +5,8 @@
     <string name="root_access_checking">Requesting Magisk root access…</string>
     <string name="root_access_granted">Root access granted</string>
     <string name="root_access_denied">Denied by Magisk. Allow Shairport in Magisk > Superuser, then tap here.</string>
-    <string name="root_access_missing">No su binary found: AirPlay 2 and Start at boot need a rooted device (Magisk).</string>
-    <string name="root_access_not_requested">Only AirPlay 2 and Start at boot need it. Tap to request it.</string>
+    <string name="root_access_missing">No su binary found: AirPlay 2 needs a rooted device (Magisk).</string>
+    <string name="root_access_not_requested">Only AirPlay 2 needs it. Tap to request it.</string>
     <string name="root_required">This option needs root access (Magisk).</string>
     <string name="receiver_category">Receiver</string>
     <string name="receiver_enabled_title">AirPlay receiver</string>
@@ -14,7 +14,7 @@
     <string name="airplay_2_title">AirPlay 2 (multi-room)</string>
     <string name="airplay_2_summary">Group with other speakers from iPhone and the Home app. Needs root for NQPTP (timing); off, the receiver is classic AirPlay.</string>
     <string name="start_at_boot_title">Start at boot</string>
-    <string name="start_at_boot_summary">Starts the receiver after every reboot, through a Magisk boot script (needs root).</string>
+    <string name="start_at_boot_summary">Starts the receiver after every reboot.</string>
     <string name="notification_stop">Stop</string>
     <string name="status_category">Status</string>
     <string name="status_shairport_title">Shairport Sync</string>
