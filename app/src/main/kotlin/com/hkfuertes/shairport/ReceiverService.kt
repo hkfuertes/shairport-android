@@ -279,7 +279,7 @@ class ReceiverService : Service() {
     private fun config(preferences: SharedPreferences, name: String, airplay2: Boolean): String = """
         general = {
           name = ${quote(name)};
-          model = ${quote(value(preferences, Prefs.MODEL))};
+          model = ${quote(if (airplay2) value(preferences, Prefs.MODEL) else Prefs.GENERIC_MODEL)};
           playback_mode = ${quote(value(preferences, Prefs.PLAYBACK_MODE))};
           output_backend = "aaudio";
           service_type = ${if (airplay2) "\"auto\"" else "\"classic\""}; // auto: classic without NQPTP

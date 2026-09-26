@@ -16,9 +16,6 @@ import java.util.concurrent.TimeUnit
 class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var preferences: SharedPreferences
     private lateinit var rootPreference: Preference
-    private lateinit var advanced: PreferenceCategory
-    private lateinit var showAdvanced: Preference
-    private var advancedShown = false
     private lateinit var statusCategory: PreferenceCategory
     private val statusListener: () -> Unit = { runOnUiThread(::refreshStatus) }
     private enum class Root { GRANTED, DENIED, MISSING }
@@ -43,13 +40,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             }
         }
         statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
-        advanced = findPreference(PREF_ADVANCED) as PreferenceCategory
-        showAdvanced = findPreference(PREF_SHOW_ADVANCED)
-        showAdvanced.setOnPreferenceClickListener {
-            setAdvancedShown(!advancedShown)
-            true
-        }
-        setAdvancedShown(false)
+        refreshModel()
 
         requestNotificationPermission()
         if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
@@ -117,7 +108,10 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
         when (key) {
             Prefs.START_AT_BOOT -> Thread({ BootScript.sync(this) }, "boot-script").start()
-            Prefs.AIRPLAY_2 -> refreshStatus()
+            Prefs.AIRPLAY_2 -> {
+                refreshModel()
+                refreshStatus()
+            }
             Prefs.RECEIVER_ENABLED -> {
                 val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
                 // The tile or the notification's "Stop" may change it while this screen is open.
@@ -154,11 +148,13 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         else if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
     }
 
-    /** Framework preferences can't be hidden, so the Advanced category is removed and re-added. */
-    private fun setAdvancedShown(shown: Boolean) {
-        advancedShown = shown
-        if (shown) preferenceScreen.addPreference(advanced) else preferenceScreen.removePreference(advanced)
-        showAdvanced.setTitle(if (shown) R.string.hide_advanced else R.string.show_advanced)
+    /** Classic AirPlay advertises the generic model (ReceiverService); the choice is AirPlay 2's. */
+    private fun refreshModel() {
+        val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
+        findPreference(Prefs.MODEL).apply {
+            isEnabled = airplay2
+            summary = if (airplay2) "%s" else getString(R.string.model_classic_summary)
+        }
     }
 
     private fun requestNotificationPermission() {
@@ -196,9 +192,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
-        private const val PREF_ADVANCED = "advanced"
         private const val PREF_STATUS = "status"
-        private const val PREF_SHOW_ADVANCED = "show_advanced"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
         private val ROOT_FEATURES = listOf(Prefs.AIRPLAY_2, Prefs.START_AT_BOOT)
     }

@@ -17,6 +17,9 @@ object Prefs {
     const val START_AT_BOOT = "start_at_boot"
     const val PLAYBACK_MODE = "playback_mode"
 
+    /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
+    const val GENERIC_MODEL = "ShairportSync"
+
     /** Typed as the settings screen stores them (EditTextPreference keeps Strings). */
     fun defaults(context: Context): Map<String, Any> = mapOf(
         RECEIVER_ENABLED to true,
