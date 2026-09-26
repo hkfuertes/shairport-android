@@ -116,11 +116,10 @@ RUN curl -fsSL https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world/ar
     && mkdir /ks && tar -xzf /tmp/ks.tar.gz -C /ks --strip-components=1 && rm /tmp/ks.tar.gz
 ENV LANG=C.UTF-8
 COPY kiosk-plugin /plugin
-ARG PLUGIN_VERSION
 RUN mkdir /tmp/test \
     && javac --release 8 -d /tmp/test $(find /ks/sdk/src /plugin/src /plugin/test -name '*.java') \
     && java -ea -cp /tmp/test com.hkfuertes.shairport.kiosk.ShairportPluginTest \
-    && python3 /ks/tools/build.py /plugin --android-platform 35 ${PLUGIN_VERSION:+--version "$PLUGIN_VERSION"}
+    && python3 /ks/tools/build.py /plugin --android-platform 35
 
 FROM scratch AS plugin-out
 COPY --from=plugin /plugin/dist/*.zip /plugin/dist/*.zip.sha256 /plugin/dist/kiosk-satellite-plugin.json /

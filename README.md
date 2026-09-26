@@ -86,7 +86,7 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 - Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Start at boot. They show the app's current values, including changes made in the app itself, and the status line says whether the receiver runs as AirPlay 2 or classic AirPlay.
 - Home Assistant (ESPHome with native entities enabled in Kiosk Satellite): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
-Install it with this repository's URL in **Plugin Manager > Add plugin** (every GitHub release carries it), or with **Developer Tools > Install from ZIP** and `build/kiosk-plugin/shairport-*.zip`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
+Install it with **Developer Tools > Install from ZIP**, using `shairport-*.zip` from a release or from `build/kiosk-plugin/`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
 
 The plugin SDK has no media player entity. A Home Assistant [universal media player](https://www.home-assistant.io/integrations/universal/) can wrap the entities (replace the entity IDs with yours):
 
