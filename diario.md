@@ -149,3 +149,19 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   entirely, no toggle. Receiver-to-sender volume isn't in a stable Shairport release (dev
   only) and misbehaves in multi-room. Re-add when upstream stable has it. VolumeSync is
   now just the `pvol` listener.
+
+## 2026-09-26 (day) — branch feat/ui-polish
+
+- Dark theme (`Theme.Material`).
+- Sender volume changes now use FLAG_SHOW_UI: the system volume bar shows the master
+  (STREAM_MUSIC) volume moving. Verified with a simulated `pvol` (screen on).
+- Magisk prompt: `su` from the app shows Magisk's native "Superuser request" only while
+  Magisk has no saved answer. The prompt auto-denies after ~10 s with "Forever" selected
+  (reproduced by accident: my tap came late -> policy=1), and toggling the app off in
+  Magisk's Superuser list also stores a deny; then Magisk refuses silently forever. That
+  is what happened to the renamed app at night (prompt raised while the screen was off).
+  The app now tells apart granted / denied / no su in the "Root access" summary (no custom
+  dialog, per user). Reset for testing: `magisk --sqlite "DELETE FROM policies WHERE uid=<uid>"`.
+- Morning AAudio session log: "AirPlay 2 Buffered playback ... AAC/48000/F24/2 -> 48000/S16_LE/2",
+  first stats line Av Sync Error 3.2 ms, Net Sync 993 ppm (first line only, buffer rotated;
+  need a longer session to judge).
