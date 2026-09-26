@@ -11,13 +11,20 @@ import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.preference.PreferenceManager
 import android.util.Log
 import java.io.File
 import java.io.InputStream
+import java.net.Inet4Address
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -28,21 +35,59 @@ class ReceiverService : Service() {
     @Volatile private var engine: Process? = null
     private var engineConfig: String? = null
 
+    /**
+     * TinySVCmDNS advertises the address Shairport started with, so a new Wi-Fi address
+     * (or a reconnect after losing Wi-Fi) needs a fresh engine.
+     */
+    private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+        private var address: String? = null
+        private var lost = false
+
+        override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+            val ipv4 = properties.linkAddresses.firstOrNull { it.address is Inet4Address }
+                ?.address?.hostAddress ?: return
+            if (ipv4 == address) return
+            val firstSeen = address == null && !lost
+            address = ipv4
+            lost = false
+            if (!firstSeen) {
+                Log.i(TAG, "Wi-Fi address is now $ipv4; restarting the engine")
+                // After a reconnect the POCO filters multicast again although the lock is held;
+                // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
+                multicastLock?.run {
+                    release()
+                    acquire()
+                }
+                onWorker { restartEngine() }
+            }
+        }
+
+        override fun onLost(network: Network) {
+            address = null
+            lost = true
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         acquireMulticastLock()
         volumeSync = VolumeSync(this).also { it.start() }
+        getSystemService(ConnectivityManager::class.java).registerNetworkCallback(
+            NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(),
+            wifiCallback,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_starting)))
-        worker.execute { startEngine() }
+        onWorker { startEngine() }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        worker.execute {
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(wifiCallback) }
+        onWorker {
             stopEngine()
             // ponytail: after a crash/force-stop this stays on until the next normal stop.
             runCatching { ProcessBuilder("su", "-c", "cmd wifi force-hi-perf-mode disabled").start() }
@@ -54,6 +99,16 @@ class ReceiverService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Late callbacks (network, engine exit) may arrive after onDestroy shut the worker down. */
+    private fun onWorker(task: () -> Unit) {
+        runCatching { worker.execute(task) }
+    }
+
+    private fun restartEngine() {
+        engineConfig = null
+        startEngine()
+    }
 
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
@@ -88,6 +143,7 @@ class ReceiverService : Service() {
         }
         engine = process
         engineConfig = config
+        val startedAt = SystemClock.elapsedRealtime()
         Thread({
             process.errorStream.bufferedReader().forEachLine { Log.i(TAG, it) }
         }, "engine-log").start()
@@ -98,9 +154,19 @@ class ReceiverService : Service() {
                 Log.e(TAG, "Audio output failed", error)
             }
             if (engine === process) {
-                Log.w(TAG, "Shairport Sync exited")
-                notifyForeground(getString(R.string.notification_engine_error))
-                worker.execute { if (engine === process) stopEngine() }
+                // ponytail: restart only engines that ran a while, so a broken setup can't spin.
+                val restart = SystemClock.elapsedRealtime() - startedAt > MIN_UPTIME_FOR_RESTART_MS
+                Log.w(TAG, "Shairport Sync exited" + if (restart) "; restarting" else "")
+                if (!restart) notifyForeground(getString(R.string.notification_engine_error))
+                onWorker {
+                    if (engine === process) {
+                        stopEngine()
+                        if (restart) {
+                            Thread.sleep(RESTART_DELAY_MS)
+                            startEngine()
+                        }
+                    }
+                }
             }
         }, "engine-audio").start()
         notifyForeground(getString(R.string.notification_active, name))
@@ -312,6 +378,8 @@ class ReceiverService : Service() {
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"
         private const val DEFAULT_NAME = "Shairport AP2 Android"
+        private const val MIN_UPTIME_FOR_RESTART_MS = 30_000L
+        private const val RESTART_DELAY_MS = 2_000L
 
 
         fun start(context: Context) {

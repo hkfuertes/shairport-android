@@ -85,3 +85,8 @@ Found:
 - 03:25 Race: new engine started while the killed app's old NQPTP was still dying ->
   port 319 busy -> Shairport fell back to classic mode. Supervisor now kills leftovers
   by name (`pidof`, never `pkill -f`: it matches the supervisor's own command line).
+- 03:45 Auto-restart when Shairport dies after >30 s uptime (verified: kill -9 ->
+  new engine in ~3 s). Wi-Fi reconnect/IP change restarts the engine; ALSO the
+  MulticastLock must be released+re-acquired: after `svc wifi disable/enable` the POCO
+  received zero multicast (InMcastPkts frozen) despite the held lock. Verified fixed
+  (mDNS 3/3 after toggle, TCP OK screen off).
