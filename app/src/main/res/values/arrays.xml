@@ -4,42 +4,24 @@
         <item>Stereo</item>
         <item>Mono</item>
     </string-array>
-    <!-- Advertised model: human name -> mDNS `model`/`am` TXT value -> icon (@null: none). -->
+    <!-- Advertised model (audio devices only): human name -> mDNS `model`/`am` TXT value -> icon. -->
     <string-array name="model_entries">
         <item>Generic</item>
         <item>AirPort Express</item>
         <item>HomePod</item>
         <item>HomePod mini</item>
-        <item>Apple TV 4K</item>
-        <item>iMac</item>
-        <item>MacBook Pro</item>
-        <item>Mac mini</item>
-        <item>Mac Studio</item>
-        <item>Mac Pro</item>
     </string-array>
     <string-array name="model_values">
         <item>ShairportSync</item>
         <item>AirPort10,115</item>
         <item>AudioAccessory1,1</item>
         <item>AudioAccessory5,1</item>
-        <item>AppleTV14,1</item>
-        <item>iMac21,1</item>
-        <item>MacBookPro18,1</item>
-        <item>Macmini9,1</item>
-        <item>Mac13,1</item>
-        <item>MacPro7,1</item>
     </string-array>
     <array name="model_icons">
-        <item>@null</item>
-        <item>@null</item>
+        <item>@drawable/ic_model_speaker</item>
+        <item>@drawable/ic_model_airport_express</item>
         <item>@drawable/ic_model_homepod</item>
         <item>@drawable/ic_model_homepod_mini</item>
-        <item>@drawable/ic_model_appletv</item>
-        <item>@drawable/ic_model_imac</item>
-        <item>@drawable/ic_model_macbook_pro</item>
-        <item>@drawable/ic_model_mac_mini</item>
-        <item>@drawable/ic_model_mac_studio</item>
-        <item>@drawable/ic_model_mac_pro</item>
     </array>
     <string-array name="audio_output_entries">
         <item>AAudio from Shairport (synchronised)</item>

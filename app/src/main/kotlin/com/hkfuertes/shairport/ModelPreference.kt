@@ -2,8 +2,6 @@ package com.hkfuertes.shairport
 
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.preference.ListPreference
 import android.util.AttributeSet
 import android.view.View
@@ -12,7 +10,7 @@ import android.widget.ArrayAdapter
 import android.widget.CheckedTextView
 
 /**
- * The advertised-model list, with each model's icon (R.array.model_icons) next to its name.
+ * The advertised-model list, with each model's icon (R.array.model_icons, one per model) next to its name.
  * The icons are black-on-transparent SF Symbols, so they are tinted with the row's text color.
  */
 @Suppress("DEPRECATION") // framework preferences, like the rest of the settings screen
@@ -30,10 +28,10 @@ class ModelPreference(context: Context, attrs: AttributeSet) : ListPreference(co
         val adapter = object : ArrayAdapter<CharSequence>(context, R.layout.model_choice, android.R.id.text1, entries) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val row = super.getView(position, convertView, parent) as CheckedTextView
-                val icon = icons.getOrNull(position)?.takeIf { it != 0 }
-                    ?.let { context.getDrawable(it)?.mutate()?.apply { setTint(row.currentTextColor) } }
-                    ?: ColorDrawable(Color.TRANSPARENT) // keeps names aligned when there is no icon
-                icon.setBounds(0, 0, size, size)
+                val icon = context.getDrawable(icons[position])?.mutate()?.apply {
+                    setTint(row.currentTextColor)
+                    setBounds(0, 0, size, size)
+                }
                 row.setCompoundDrawablesRelative(icon, null, null, null)
                 return row
             }

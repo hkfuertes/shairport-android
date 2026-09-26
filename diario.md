@@ -209,3 +209,6 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   args into one command string) -> README now uses "'...'". Same bug in the upstream PR #46 README.
 - Launcher: adaptive icon (white background, glyph inset 28%) + legacy 192 px for API 25;
   notification small icon = the glyph (status icons use alpha only). All verified on screen.
+- Model list trimmed to audio devices (user): Generic (hifispeaker icon, the generic
+  speaker iOS uses), AirPort Express (airport.express icon), HomePod, HomePod mini.
+  Apple TV and Mac entries/icons removed; every model now has an icon.
