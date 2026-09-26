@@ -1,8 +1,8 @@
-# Handoff: Shairport AP2 Android
+# Handoff: Shairport
 
 ## State
 
-Branch `feat/android-foreground-service`. The app is a working AirPlay 2 receiver on the rooted POCO F1 (`40e396f`, arm64, Android 15, Magisk): discovery and playback from an iPhone were confirmed by the user with the AudioTrack pipe; the AAudio backend (now the default on Android 8+) passed the silent device check but still needs a real AirPlay session. Do not touch the Echo device.
+The app is `com.hkfuertes.shairport` ("Shairport"; renamed from `com.hkfuertes.shairportap2`, so Magisk had to grant it again). It is a working AirPlay 2 receiver on the rooted POCO F1 (`40e396f`, arm64, Android 15, Magisk), verified from an iPhone with both audio outputs. Its settings can be changed over adb (README, "Configure from ADB"), and the advertised name defaults to Android's device name. Do not touch the Echo device.
 
 `diario.md` has the chronological log with measurements; read it before changing the engine lifecycle or Wi-Fi handling.
 

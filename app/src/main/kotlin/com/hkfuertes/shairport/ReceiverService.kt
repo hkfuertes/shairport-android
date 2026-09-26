@@ -1,4 +1,4 @@
-package com.hkfuertes.shairportap2
+package com.hkfuertes.shairport
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -20,7 +20,6 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.preference.PreferenceManager
 import android.util.Log
 import java.io.File
 import java.io.InputStream
@@ -68,8 +67,15 @@ class ReceiverService : Service() {
         }
     }
 
+    /** Applies setting changes from any source (settings screen or adb's SettingsReceiver). */
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+        if (key == Prefs.RECEIVER_ENABLED && !preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) stopSelf()
+        else onWorker { startEngine() } // no-op unless the resulting configuration changed
+    }
+
     override fun onCreate() {
         super.onCreate()
+        Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
         createNotificationChannel()
         acquireMulticastLock()
         volumeSync = VolumeSync(this).also { it.start() }
@@ -87,6 +93,7 @@ class ReceiverService : Service() {
 
     override fun onDestroy() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(wifiCallback) }
+        Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
         onWorker {
             stopEngine()
             // ponytail: after a crash/force-stop this stays on until the next normal stop.
@@ -112,10 +119,9 @@ class ReceiverService : Service() {
 
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val name = value(preferences, MainActivity.PREF_SERVER_NAME, DEFAULT_NAME)
-        val aaudio = AAUDIO_AVAILABLE &&
-            value(preferences, MainActivity.PREF_AUDIO_OUTPUT, "aaudio") == "aaudio"
+        val preferences = Prefs.get(this)
+        val name = value(preferences, Prefs.SERVER_NAME)
+        val aaudio = AAUDIO_AVAILABLE && value(preferences, Prefs.AUDIO_OUTPUT) == "aaudio"
         val config = config(preferences, name, aaudio)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
@@ -286,10 +292,10 @@ class ReceiverService : Service() {
     private fun config(preferences: SharedPreferences, name: String, aaudio: Boolean): String = """
         general = {
           name = ${quote(name)};
-          model = ${quote(value(preferences, MainActivity.PREF_MODEL, "AudioAccessory1,1"))};
-          interface = ${quote(value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))};
-          port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};
-          playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
+          model = ${quote(value(preferences, Prefs.MODEL))};
+          interface = ${quote(value(preferences, Prefs.NETWORK_INTERFACE))};
+          port = ${port(value(preferences, Prefs.PORT))};
+          playback_mode = ${quote(value(preferences, Prefs.PLAYBACK_MODE))};
           output_backend = ${if (aaudio) "\"aaudio\"" else "\"stdout\""};
           mdns_backend = "tinysvcmdns";
           ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
@@ -318,10 +324,12 @@ class ReceiverService : Service() {
         return "\"$escaped\""
     }
 
-    private fun value(preferences: SharedPreferences, key: String, fallback: String): String =
-        preferences.getString(key, fallback).takeUnless { it.isNullOrBlank() } ?: fallback
+    /** A text setting; blank (e.g. a cleared name) falls back to its default. */
+    private fun value(preferences: SharedPreferences, key: String): String =
+        preferences.getString(key, null).takeUnless { it.isNullOrBlank() }
+            ?: Prefs.defaults(this)[key] as String
 
-    private fun port(value: String) = if (MainActivity.isValidPort(value)) value.toInt() else 7000
+    private fun port(value: String) = if (Prefs.isValidPort(value)) value.toInt() else 7000
 
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
 
@@ -381,7 +389,7 @@ class ReceiverService : Service() {
     }
 
     companion object {
-        private const val TAG = "ShairportAP2"
+        private const val TAG = "Shairport"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000
@@ -391,7 +399,6 @@ class ReceiverService : Service() {
         private const val BYTES_PER_FRAME = 4 // S16_LE stereo
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"
-        private const val DEFAULT_NAME = "Shairport AP2 Android"
         private const val MIN_UPTIME_FOR_RESTART_MS = 30_000L
         private const val RESTART_DELAY_MS = 2_000L
 

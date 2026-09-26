@@ -165,3 +165,19 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - Morning AAudio session log: "AirPlay 2 Buffered playback ... AAC/48000/F24/2 -> 48000/S16_LE/2",
   first stats line Av Sync Error 3.2 ms, Net Sync 993 ppm (first line only, buffer rotated;
   need a longer session to judge).
+
+## 2026-09-26 (day) — branch feat/device-name-adb-config
+
+- Renamed everything to "Shairport": label, notification channel, log tag `Shairport`,
+  namespace/applicationId/Kotlin package `com.hkfuertes.shairport`, Gradle root project.
+  Old package uninstalled from the POCO (Magisk dropped its policy); new UID 10208 granted
+  through Magisk's prompt.
+- `Prefs.kt`: single source of keys/defaults (XML defaultValues removed). Default advertised
+  name = Settings.Global.DEVICE_NAME ("Xiaomi Pocophone F1"; `ro.product.name` is
+  `lineage_beryllium` here), fallback manufacturer + model.
+- "Root access" row is disabled once root is granted.
+- adb configuration like jqssun/android-airplay-server#46: `SettingsReceiver` (DUMP-protected),
+  CONFIGURE_SETTINGS / LIST_SETTINGS; rejects unknown keys, wrong types, bad ports and values
+  outside list choices. The service listens to the preferences and applies changes itself.
+  Verified: rename -> engine restarts cleanly, mDNS shows the new name; receiver_enabled
+  false stops the service.

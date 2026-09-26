@@ -1,4 +1,4 @@
-package com.hkfuertes.shairportap2
+package com.hkfuertes.shairport
 
 import android.Manifest
 import android.preference.PreferenceActivity
@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.Bundle
 import android.preference.Preference
 import android.preference.PreferenceGroup
-import android.preference.PreferenceManager
 import android.widget.Toast
 import java.util.concurrent.TimeUnit
 
@@ -22,17 +21,16 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        preferences = Prefs.get(this) // stores defaults (device name, ...) before the screen reads them
         addPreferencesFromResource(R.xml.preferences)
-
-        preferences = PreferenceManager.getDefaultSharedPreferences(this)
         preferences.registerOnSharedPreferenceChangeListener(this)
         rootPreference = findPreference(PREF_ROOT_ACCESS)
         rootPreference.setOnPreferenceClickListener {
             requestRoot()
             true
         }
-        findPreference(PREF_PORT).setOnPreferenceChangeListener { _, value ->
-            if (isValidPort(value.toString())) {
+        findPreference(Prefs.PORT).setOnPreferenceChangeListener { _, value ->
+            if (Prefs.isValidPort(value.toString())) {
                 true
             } else {
                 Toast.makeText(this, R.string.invalid_port, Toast.LENGTH_SHORT).show()
@@ -49,17 +47,13 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         super.onDestroy()
     }
 
+    // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
-        if (key == PREF_RECEIVER_ENABLED) {
-            if (rootGranted && sharedPreferences.getBoolean(PREF_RECEIVER_ENABLED, true)) {
-                ReceiverService.start(this)
-            } else {
-                ReceiverService.stop(this)
-            }
-        } else if (rootGranted && key != null && isConfigPreference(key)
-            && sharedPreferences.getBoolean(PREF_RECEIVER_ENABLED, true)
-        ) {
+        if (key != Prefs.RECEIVER_ENABLED) return
+        if (rootGranted && sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) {
             ReceiverService.start(this)
+        } else {
+            ReceiverService.stop(this)
         }
     }
 
@@ -82,7 +76,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         rootCheckRunning = false
         val granted = root == Root.GRANTED
         rootGranted = granted
-        rootPreference.isEnabled = true
+        rootPreference.isEnabled = !granted // nothing left to request once root is granted
         rootPreference.setSummary(
             when (root) {
                 Root.GRANTED -> R.string.root_access_granted
@@ -94,7 +88,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
         if (granted) {
             requestNotificationPermission()
-            if (preferences.getBoolean(PREF_RECEIVER_ENABLED, true)) {
+            if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) {
                 ReceiverService.start(this)
             }
         } else {
@@ -127,15 +121,6 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         }
     }
 
-    private fun isConfigPreference(key: String) = key in setOf(
-        PREF_SERVER_NAME,
-        PREF_MODEL,
-        PREF_NETWORK_INTERFACE,
-        PREF_PORT,
-        PREF_PLAYBACK_MODE,
-        PREF_AUDIO_OUTPUT,
-    )
-
     /**
      * `su` itself makes Magisk show its grant prompt, but only while Magisk has no saved answer:
      * a saved "deny" (also left by a prompt that timed out) is applied silently, no prompt.
@@ -161,16 +146,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     }
 
     companion object {
-        const val PREF_RECEIVER_ENABLED = "receiver_enabled"
-        const val PREF_SERVER_NAME = "server_name"
-        const val PREF_MODEL = "model"
-        const val PREF_NETWORK_INTERFACE = "network_interface"
-        const val PREF_PORT = "port"
-        const val PREF_PLAYBACK_MODE = "playback_mode"
-        const val PREF_AUDIO_OUTPUT = "audio_output"
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
-
-        fun isValidPort(value: String) = value.toIntOrNull()?.let { it in 1..65535 } == true
     }
 }
