@@ -305,6 +305,9 @@ class ReceiverService : Service() {
           output_rate = $SAMPLE_RATE;
           output_channels = 2;
         };
+        diagnostics = {
+          statistics = "yes"; // ponytail: sync stats in logcat until AAudio is proven
+        };
     """.trimIndent() + "\n"
 
     private fun quote(value: String): String {
