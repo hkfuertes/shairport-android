@@ -19,9 +19,11 @@
     <string name="port_summary">Between 1 and 65535.</string>
     <string name="playback_mode_title">Playback mode</string>
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
+    <string name="audio_output_title">Audio output</string>
+    <string name="audio_output_summary">AAudio keeps AirPlay 2 timing (multi-room); AudioTrack is the Android 7 fallback.</string>
     <string name="fixed_category">Fixed engine</string>
     <string name="fixed_engine_title">Service, backend, and discovery</string>
-    <string name="fixed_engine_summary">Shairport Sync (AirPlay 2) + NQPTP as root, TinySVCmDNS discovery, AudioTrack output.</string>
+    <string name="fixed_engine_summary">Shairport Sync (AirPlay 2) + NQPTP as root, TinySVCmDNS discovery.</string>
     <string name="invalid_port">Port must be between 1 and 65535.</string>
     <string name="notification_channel_name">Shairport AP2 service</string>
     <string name="notification_starting">Starting AirPlay receiver…</string>

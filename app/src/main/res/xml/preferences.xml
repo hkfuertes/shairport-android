@@ -37,6 +37,13 @@
             android:summary="@string/port_summary"
             android:title="@string/port_title" />
         <ListPreference
+            android:defaultValue="aaudio"
+            android:entries="@array/audio_output_entries"
+            android:entryValues="@array/audio_output_values"
+            android:key="audio_output"
+            android:summary="@string/audio_output_summary"
+            android:title="@string/audio_output_title" />
+        <ListPreference
             android:defaultValue="stereo"
             android:entries="@array/playback_mode_entries"
             android:entryValues="@array/playback_mode_values"

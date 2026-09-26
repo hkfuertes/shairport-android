@@ -4,6 +4,14 @@
         <item>Stereo</item>
         <item>Mono</item>
     </string-array>
+    <string-array name="audio_output_entries">
+        <item>AAudio from Shairport (synchronised)</item>
+        <item>App AudioTrack (pipe, no delay feedback)</item>
+    </string-array>
+    <string-array name="audio_output_values">
+        <item>aaudio</item>
+        <item>stdout</item>
+    </string-array>
     <string-array name="playback_mode_values">
         <item>stereo</item>
         <item>mono</item>

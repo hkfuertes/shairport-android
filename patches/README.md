@@ -9,6 +9,6 @@
 5. `shairport-sync/0003-*`: TinySVCmDNS host name `shairport-<MAC>.local` when the system reports `localhost` (always on Android; the POCO kernel has no UTS namespaces).
 6. `shairport-sync/0004-*`: `aaudio` output backend (`--with-aaudio`): plays from the root process through AAudio (`libaaudio.so` loaded at run time, API 26+) and reports the real output delay from `AAudioStream_getTimestamp()`, so Shairport keeps sync as with ALSA.
 
-`reference/0003-echo-*` is **not applied**. It is the previous raw Echo ALSA backend and is useful only as a small, concrete example of Shairport's audio-backend integration points. Replace it with a new `audio_audiotrack` patch.
+`reference/0003-echo-*` is **not applied**. It is the previous raw Echo ALSA backend, kept only as a small example of Shairport's audio-backend integration points (`0004` followed the same pattern for AAudio).
 
 All active patches target the SHA-pinned upstream sources in `../upstream.env`; do not silently rebase them to another upstream revision.

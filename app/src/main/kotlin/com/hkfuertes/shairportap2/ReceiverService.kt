@@ -114,7 +114,9 @@ class ReceiverService : Service() {
     private fun startEngine() {
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
         val name = value(preferences, MainActivity.PREF_SERVER_NAME, DEFAULT_NAME)
-        val config = config(preferences, name)
+        val aaudio = AAUDIO_AVAILABLE &&
+            value(preferences, MainActivity.PREF_AUDIO_OUTPUT, "aaudio") == "aaudio"
+        val config = config(preferences, name, aaudio)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
             return
@@ -149,7 +151,7 @@ class ReceiverService : Service() {
         }, "engine-log").start()
         Thread({
             try {
-                if (AAUDIO) drain(process.inputStream) else play(process.inputStream)
+                if (aaudio) drain(process.inputStream) else play(process.inputStream)
             } catch (error: Exception) {
                 Log.e(TAG, "Audio output failed", error)
             }
@@ -281,14 +283,14 @@ class ReceiverService : Service() {
         }
     }
 
-    private fun config(preferences: SharedPreferences, name: String): String = """
+    private fun config(preferences: SharedPreferences, name: String, aaudio: Boolean): String = """
         general = {
           name = ${quote(name)};
           model = ${quote(value(preferences, MainActivity.PREF_MODEL, "AudioAccessory1,1"))};
           interface = ${quote(value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))};
           port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};
           playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
-          output_backend = ${if (AAUDIO) "\"aaudio\"" else "\"stdout\""};
+          output_backend = ${if (aaudio) "\"aaudio\"" else "\"stdout\""};
           mdns_backend = "tinysvcmdns";
           ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
         };
@@ -382,7 +384,7 @@ class ReceiverService : Service() {
         private const val PER_USER_RANGE = 100000
         private const val SAMPLE_RATE = 44100
         /** Shairport's aaudio backend (real output delay -> sync) needs libaaudio.so. */
-        private val AAUDIO = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        private val AAUDIO_AVAILABLE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         private const val BYTES_PER_FRAME = 4 // S16_LE stereo
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"

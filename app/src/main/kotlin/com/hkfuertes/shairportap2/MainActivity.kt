@@ -127,6 +127,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         PREF_NETWORK_INTERFACE,
         PREF_PORT,
         PREF_PLAYBACK_MODE,
+        PREF_AUDIO_OUTPUT,
     )
 
     private fun hasRoot(): Boolean {
@@ -153,6 +154,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         const val PREF_NETWORK_INTERFACE = "network_interface"
         const val PREF_PORT = "port"
         const val PREF_PLAYBACK_MODE = "playback_mode"
+        const val PREF_AUDIO_OUTPUT = "audio_output"
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
 
