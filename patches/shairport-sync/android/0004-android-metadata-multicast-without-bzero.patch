@@ -1,0 +1,11 @@
+--- a/metadata/multicast.c	2026-09-26 02:09:46.673289904 +0200
++++ b/metadata/multicast.c	2026-09-26 02:09:46.701290087 +0200
+@@ -38,7 +38,7 @@
+     } else {
+       int buffer_size = METADATA_SNDBUF;
+       setsockopt(metadata_sock, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+-      bzero((char *)&metadata_sockaddr, sizeof(metadata_sockaddr));
++      memset(&metadata_sockaddr, 0, sizeof(metadata_sockaddr));
+       metadata_sockaddr.sin_family = AF_INET;
+       metadata_sockaddr.sin_addr.s_addr = inet_addr(config.metadata_sockaddr);
+       metadata_sockaddr.sin_port = htons(config.metadata_sockport);

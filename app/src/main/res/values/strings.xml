@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Shairport AP2</string>
+    <string name="root_access_title">Root access</string>
+    <string name="root_access_checking">Requesting Magisk root access…</string>
+    <string name="root_access_granted">Root access granted</string>
+    <string name="root_access_denied">Tap to request root access</string>
+    <string name="receiver_category">Receiver</string>
+    <string name="receiver_enabled_title">Keep receiver service active</string>
+    <string name="receiver_enabled_summary">Starts the foreground service and preserves Wi-Fi multicast.</string>
+    <string name="configuration_category">Shairport configuration</string>
+    <string name="server_name_title">Advertised name</string>
+    <string name="server_name_summary">Name visible to AirPlay senders.</string>
+    <string name="model_title">Advertised model</string>
+    <string name="model_summary">Model included in the AirPlay registration.</string>
+    <string name="interface_title">Wi-Fi interface</string>
+    <string name="interface_summary">Usually wlan0.</string>
+    <string name="port_title">AirPlay port</string>
+    <string name="port_summary">Between 1 and 65535.</string>
+    <string name="playback_mode_title">Playback mode</string>
+    <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
+    <string name="audio_output_title">Audio output</string>
+    <string name="audio_output_summary">AAudio keeps AirPlay 2 timing (multi-room); AudioTrack is the Android 7 fallback.</string>
+    <string name="fixed_category">Fixed engine</string>
+    <string name="fixed_engine_title">Service, backend, and discovery</string>
+    <string name="fixed_engine_summary">Shairport Sync (AirPlay 2) + NQPTP as root, TinySVCmDNS discovery.</string>
+    <string name="invalid_port">Port must be between 1 and 65535.</string>
+    <string name="notification_channel_name">Shairport AP2 service</string>
+    <string name="notification_starting">Starting AirPlay receiver…</string>
+    <string name="notification_active">AirPlay receiver "%1$s" is active.</string>
+    <string name="notification_engine_error">AirPlay receiver stopped unexpectedly; toggle the receiver to restart.</string>
+    <string name="notification_storage_error">External app storage is unavailable.</string>
+    <string name="notification_config_error">Could not save the configuration.</string>
+</resources>

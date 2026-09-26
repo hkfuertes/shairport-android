@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.hkfuertes.shairportap2'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.hkfuertes.shairportap2'
+        minSdk 25
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs('../build/nqptp', '../build/shairport-bin')
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+}
