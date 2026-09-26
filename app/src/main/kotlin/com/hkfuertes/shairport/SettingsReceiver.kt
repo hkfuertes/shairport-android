@@ -48,11 +48,16 @@ class SettingsReceiver : BroadcastReceiver() {
                 "$key expects ${typeName(default)}; got ${typeName(value)}"
             }
             if (key == Prefs.PORT) require(Prefs.isValidPort(value as String)) { "port must be 1-65535" }
-            Prefs.choices(context)[key]?.let { allowed ->
-                require(value in allowed) { "$key must be one of $allowed" }
-            }
+            // List settings take the value or its human label ("HomePod mini" = AudioAccessory5,1).
+            val stored: Any = Prefs.choices(context)[key]?.let { allowed ->
+                val labels = Prefs.labels(context).getValue(key)
+                val index = allowed.indexOf(value).takeIf { it >= 0 }
+                    ?: labels.indexOfFirst { it.equals(value as String, ignoreCase = true) }
+                require(index >= 0) { "$key must be one of $allowed or $labels" }
+                allowed[index]
+            } ?: value
             val editor = preferences.edit()
-            if (value is Boolean) editor.putBoolean(key, value) else editor.putString(key, value as String)
+            if (stored is Boolean) editor.putBoolean(key, stored) else editor.putString(key, stored as String)
             check(editor.commit()) { "failed to persist settings" }
             key
         }
@@ -66,6 +71,7 @@ class SettingsReceiver : BroadcastReceiver() {
                 put("value", preferences.all[key] ?: default)
                 put("default", default)
                 Prefs.choices(context)[key]?.let { put("choices", JSONArray(it)) }
+                Prefs.labels(context)[key]?.let { put("labels", JSONArray(it)) }
             })
         }
         JSONObject().put("settings", settings).toString()

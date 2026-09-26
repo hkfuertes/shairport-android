@@ -194,3 +194,40 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - Verified with a Magisk service.d script across a reboot: first engine exits (no IP),
   Wi-Fi arrives 3 s later -> restart -> advertised, TCP :7000 OK. README "Headless setup"
   commands executed verbatim. Script removed from the POCO afterwards (opt-in via README).
+
+## 2026-09-26 (day) — branch feat/model-icons
+
+- Icons from the user's IPSW/CoreTypes extraction (~/airplay-model-icons.zip: SF Symbols, black
+  on transparent). Generated res/drawable-nodpi PNGs (cropped, square, 144 px; glyph 192 px).
+- Advertised model is now a list with icons (ModelPreference: ListPreference dialog, rows tinted
+  with the text colour): Generic=ShairportSync, AirPort Express=AirPort10,115 (no icons, as
+  asked), HomePod=AudioAccessory1,1 (default), HomePod mini=AudioAccessory5,1, Apple TV 4K=
+  AppleTV14,1, iMac21,1, MacBookPro18,1, Macmini9,1, Mac13,1, MacPro7,1. iPad/AirPort
+  Extreme/Time Capsule left out: not AirPlay receivers.
+- adb: list settings accept the value or its label (case-insensitive); LIST shows labels.
+  Found: `adb shell ... --es value 'Kitchen speaker'` arrives split on the device (adb re-joins
+  args into one command string) -> README now uses "'...'". Same bug in the upstream PR #46 README.
+- Launcher: adaptive icon (white background, glyph inset 28%) + legacy 192 px for API 25;
+  notification small icon = the glyph (status icons use alpha only). All verified on screen.
+- Model list trimmed to audio devices (user): Generic (hifispeaker icon, the generic
+  speaker iOS uses), AirPort Express (airport.express icon), HomePod, HomePod mini.
+  Apple TV and Mac entries/icons removed; every model now has an icon.
+- User checked on the iPhone: Generic (ShairportSync) and AirPort Express (AirPort10,115) both
+  show a speaker-with-waves glyph, HomePod/HomePod mini show their own. macOS's CoreTypes table
+  (hifispeaker / airport.express) does not apply to iOS for those.
+- Research: real Sonos TXT (owntone src/outputs/airplay.c comments): manufacturer=Sonos,
+  model=Bookshelf (short model), serialNumber, fv=p20..., srcvers=366.0, protovers=1.1,
+  flags=0x4, rsf=0x0, features=0x445F8A00,0x1C340. Marantz: model=NR1607; Libratone:
+  model=LibratoneLoop1. Apple sends no manufacturer and an identifier as model.
+  AirplayKit (phranck) read CoreGlyphs name_availability.plist: only Apple products have
+  device-shaped glyphs; third parties get generic ones. No TXT value selects `hifispeaker` on
+  iOS: any non-Apple model gets iOS's generic speaker-with-waves route icon.
+- ic_model_speaker_wave.png is DRAWN (approximation, 40 px stroke like the set) until the exact
+  iOS glyph is extracted from CoreGlyphs.
+- AirPort Express removed (user): iOS shows it with the same generic glyph as Generic.
+  ic_model_speaker_wave.png is now the exact speaker.wave.3.fill SF Symbol provided by the user
+  (replaces my drawn approximation). Model list: Generic, HomePod, HomePod mini.
+- Wi-Fi interface, AirPlay port and Audio output moved behind "Show advanced settings": an
+  Advanced category removed from / re-added to the screen (framework preferences have no
+  setVisible), explicit android:order keeps its place; root enabling also applied while hidden.
+  Verified on screen: collapsed, expanded (enabled, before "Fixed engine"), collapsed again.

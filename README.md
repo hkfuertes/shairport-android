@@ -32,20 +32,22 @@ The first run builds the arm64 dependency prefix (`build/deps/arm64-v8a`, resuma
 Settings can be written with an explicit `adb shell` broadcast: one typed `key`/`value` pair per call, stored in the same preferences the settings screen uses. The receiver is protected by `android.permission.DUMP`, so regular apps cannot use it. Unknown keys, wrong types, invalid ports and values outside a list setting's choices are rejected. A running receiver applies changes at once (restarting the engine when the configuration changed); otherwise they apply the next time the app starts it.
 
 ```sh
-# text (the advertised name defaults to Android's device name)
+# text (the advertised name defaults to Android's device name). adb shell re-splits the command
+# on the device, so a value with spaces needs a second level of quotes.
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
-  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key server_name --es value 'Kitchen speaker'
+  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key server_name --es value "'Kitchen speaker'"
 
-# list settings: audio_output (aaudio|stdout), playback_mode; the port is text too
+# list settings take their value or its label: model ("HomePod mini" = AudioAccessory5,1),
+# audio_output (aaudio|stdout), playback_mode. The port is text too.
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
-  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key audio_output --es value stdout
+  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key model --es value "'HomePod mini'"
 
 # boolean
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key receiver_enabled --ez value false
 ```
 
-List keys, types, current values, defaults and choices as JSON:
+List keys, types, current values, defaults, and choices with their labels as JSON:
 
 ```sh
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
@@ -91,7 +93,7 @@ The whole setup works over adb, with no screen interaction, on a Magisk-rooted d
 
 ## Layout
 
-- `app/`: Kotlin app (`MainActivity`, `ReceiverService`, `VolumeSync`, `Prefs`, `SettingsReceiver`).
+- `app/`: Kotlin app (`MainActivity`, `ReceiverService`, `VolumeSync`, `Prefs`, `SettingsReceiver`, `ModelPreference`).
 - `patches/`: Android patch stack, in order; see [`patches/README.md`](patches/README.md).
 - `scripts/`: fetch/patch, Docker builds (`build-android-docker.sh`, `build-shairport-android.sh`, `build-shairport-deps-android.sh`, `build-nqptp-android.sh`).
 - `diario.md`: night log of decisions, measurements and dead ends.

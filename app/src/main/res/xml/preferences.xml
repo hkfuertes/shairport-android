@@ -1,27 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Explicit orders keep the Advanced category in place when MainActivity re-adds it. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
     <Preference
         android:key="root_access"
+        android:order="0"
         android:persistent="false"
         android:summary="@string/root_access_checking"
         android:title="@string/root_access_title" />
 
-    <PreferenceCategory android:title="@string/receiver_category">
+    <PreferenceCategory
+        android:order="1"
+        android:title="@string/receiver_category">
         <SwitchPreference
             android:key="receiver_enabled"
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/configuration_category">
+    <PreferenceCategory
+        android:order="2"
+        android:title="@string/configuration_category">
         <EditTextPreference
             android:key="server_name"
             android:summary="@string/server_name_summary"
             android:title="@string/server_name_title" />
-        <EditTextPreference
+        <com.hkfuertes.shairport.ModelPreference
+            android:entries="@array/model_entries"
+            android:entryValues="@array/model_values"
             android:key="model"
-            android:summary="@string/model_summary"
+            android:summary="%s"
             android:title="@string/model_title" />
+        <ListPreference
+            android:entries="@array/playback_mode_entries"
+            android:entryValues="@array/playback_mode_values"
+            android:key="playback_mode"
+            android:summary="@string/playback_mode_summary"
+            android:title="@string/playback_mode_title" />
+        <Preference
+            android:key="show_advanced"
+            android:persistent="false"
+            android:title="@string/show_advanced" />
+    </PreferenceCategory>
+
+    <!-- Hidden until "Show advanced settings" is tapped (MainActivity). -->
+    <PreferenceCategory
+        android:key="advanced"
+        android:order="3"
+        android:title="@string/advanced_category">
         <EditTextPreference
             android:key="network_interface"
             android:summary="@string/interface_summary"
@@ -37,15 +62,11 @@
             android:key="audio_output"
             android:summary="@string/audio_output_summary"
             android:title="@string/audio_output_title" />
-        <ListPreference
-            android:entries="@array/playback_mode_entries"
-            android:entryValues="@array/playback_mode_values"
-            android:key="playback_mode"
-            android:summary="@string/playback_mode_summary"
-            android:title="@string/playback_mode_title" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/fixed_category">
+    <PreferenceCategory
+        android:order="4"
+        android:title="@string/fixed_category">
         <Preference
             android:selectable="false"
             android:summary="@string/fixed_engine_summary"
