@@ -17,6 +17,7 @@ Branch `feat/android-foreground-service`. The app is a working AirPlay 2 receive
 ## Open items
 
 - **Android → iPhone volume** uses DACP `dmcp.device-volume` (what Shairport's own D-Bus/MPRIS use). Shairport documents DACP remote control as Classic-AirPlay-only; upstream declares `ap2_event_send_unit_volume_notification()` but no branch implements it. If iOS ignores DACP in AirPlay 2 sessions, the next step is reverse-engineering the AP2 event-channel volume notification.
+- Shairport sync statistics are logged (`diagnostics.statistics`) until AAudio is proven; drop them afterwards.
 - Validate AAudio with real AirPlay 2 realtime and buffered streams, multi-room next to another speaker, track skips (flush closes/reopens the stream), output device changes (Bluetooth), and hour-long sessions.
 - pyatv cannot exercise this build (AP2 uses NTP timing; classic RAOP sends L16, which this build fails to decode). Testing needs an Apple sender.
 - Boot start is not implemented (Android 15 restricts media-playback foreground services from `BOOT_COMPLETED`).

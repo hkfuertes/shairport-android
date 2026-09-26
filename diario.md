@@ -118,3 +118,18 @@ Found:
   volume; possible future route for Android->iPhone sync if DACP fails in AP2.
 - 04:45 From-scratch build in a clean clone (/tmp/fresh): arm64 deps ~16 min, then both
   Shairport ABIs, both NQPTP ABIs and the APK: BUILD SUCCESSFUL. Pipeline reproducible.
+- 04:50 Idle cost measured over 60 s: Shairport 1 tick, NQPTP 14 ticks (0.14 s/min),
+  app 0. Removed all test files from the POCO's /data/local/tmp.
+
+## Para la mañana (estado + qué probar)
+
+Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por defecto.
+1. Reproducir desde el iPhone. Si algo suena raro: Ajustes de la app -> *Audio output* ->
+   "App AudioTrack" (el camino que ya funcionó) y comparar.
+2. Volumen iPhone -> Android: mover el slider; el volumen multimedia del POCO debe seguirlo.
+3. Volumen Android -> iPhone: teclas de volumen del POCO durante la reproducción. Mirar
+   `adb logcat -s ShairportAP2 | grep DACP`: "DACP iTunes_Ctrl_... -> /ip:port" y
+   "DACP device-volume ... -> HTTP/1.1 2xx" = funciona; "-> null" = el iPhone no anuncia
+   DACP en AirPlay 2 (entonces habría que ir al canal de eventos AP2/MRP).
+4. Sincronía: las líneas de estadísticas de Shairport salen en el mismo logcat.
+5. Pantalla apagada: debería seguir visible y conectable (hi-perf Wi-Fi forzado).
