@@ -144,3 +144,7 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   rr_create_aaaa() kept a pointer into getifaddrs() memory (freed after registration =
   use-after-free in AAAA answers) and free()d it at shutdown. Patch 0005 copies it.
   Verified: engine restart logs "shairport-sync exited: 0" in ~70 ms; A/AAAA OK.
+- 05:05 Checked the "Audio output" plumbing silently: stdout mode -> config "stdout" +
+  app AudioTrack (44.1k, USAGE_MEDIA) created; switched back to aaudio (default).
+  AP2 session-teardown paths already have cancellation points (player loop, buffered
+  reader, AP2 receivers); aaudio play() blocks at most 1 s before the player sees it.
