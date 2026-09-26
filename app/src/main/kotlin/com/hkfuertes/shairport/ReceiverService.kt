@@ -79,6 +79,11 @@ class ReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) { // the notification's "Stop"
+            Prefs.get(this).edit().putBoolean(Prefs.RECEIVER_ENABLED, false).commit()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_starting)))
         onWorker { startEngine() }
         return START_STICKY
@@ -127,7 +132,7 @@ class ReceiverService : Service() {
     private fun startEngine() {
         val preferences = Prefs.get(this)
         val name = value(preferences, Prefs.SERVER_NAME)
-        val aaudio = AAUDIO_AVAILABLE && value(preferences, Prefs.AUDIO_OUTPUT) == "aaudio"
+        val aaudio = AAUDIO_AVAILABLE // AudioTrack pipe only where AAudio doesn't exist (Android 7)
         val config = config(preferences, name, aaudio)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
@@ -149,6 +154,7 @@ class ReceiverService : Service() {
         }
 
         engineAddress = wifiAddress()
+        EngineStatus.engineStarting(engineAddress)
         val process = try {
             ProcessBuilder("su", "-c", supervisorScript()).start()
         } catch (error: Exception) {
@@ -160,7 +166,13 @@ class ReceiverService : Service() {
         engineConfig = config
         val startedAt = SystemClock.elapsedRealtime()
         Thread({
-            process.errorStream.bufferedReader().forEachLine { Log.i(TAG, it) }
+            process.errorStream.bufferedReader().forEachLine { line ->
+                if (line.startsWith(STATUS_MARKER)) {
+                    if (engine === process) applyStatus(line.removePrefix(STATUS_MARKER))
+                } else {
+                    Log.i(TAG, line)
+                }
+            }
         }, "engine-log").start()
         Thread({
             try {
@@ -218,8 +230,10 @@ class ReceiverService : Service() {
             ${shellQuote("$libraries/libnqptp.so")} 3>&- 4<&- & nqptp=${'$'}!
             i=0
             while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
+            if [ -s $shm/nqptp ]; then echo "${STATUS_MARKER}nqptp up"; else echo "${STATUS_MARKER}nqptp down"; fi
             ${shellQuote("$libraries/libshairport_sync.so")} -c ${shellQuote("$rootFiles/$CONFIG_FILE")} 1>&3 3>&- 4<&- &
             shairport=${'$'}!
+            echo "${STATUS_MARKER}shairport up"
             exec 3>&-
             # Safety net: Bionic has no real pthread cancellation, so if some wait we have not
             # patched (android/0005) still blocks Shairport's exit, SIGKILL it after 3 s.
@@ -228,7 +242,9 @@ class ReceiverService : Service() {
             exec 4<&-
             wait ${'$'}shairport
             status=${'$'}?
+            echo "${STATUS_MARKER}shairport down"
             kill ${'$'}watcher ${'$'}nqptp 2>/dev/null
+            echo "${STATUS_MARKER}nqptp down"
             echo "shairport-sync exited: ${'$'}status"
             sleep 1
             kill -9 ${'$'}nqptp 2>/dev/null
@@ -236,9 +252,19 @@ class ReceiverService : Service() {
         """.trimIndent()
     }
 
+    /** `@status <part> up|down`, printed by the supervisor script. */
+    private fun applyStatus(status: String) {
+        val up = status.endsWith(" up")
+        when (status.substringBefore(' ')) {
+            "nqptp" -> EngineStatus.nqptpRunning(up)
+            "shairport" -> EngineStatus.shairportRunning(up)
+        }
+    }
+
     private fun stopEngine() {
         val process = engine ?: return
         engine = null
+        EngineStatus.engineStopped()
         runCatching { process.outputStream.close() }
         repeat(50) {
             if (process.exited()) return
@@ -384,7 +410,20 @@ class ReceiverService : Service() {
         } else {
             Notification.Builder(this)
         }
+        val stop = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, ReceiverService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return builder
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_airplay_audio),
+                    getString(R.string.notification_stop),
+                    stop,
+                ).build(),
+            )
             .setSmallIcon(R.drawable.ic_airplay_audio) // alpha-only glyph, as status icons need
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -397,6 +436,8 @@ class ReceiverService : Service() {
 
     companion object {
         private const val TAG = "Shairport"
+        private const val STATUS_MARKER = "@status "
+        private const val ACTION_STOP = "com.hkfuertes.shairport.STOP"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000

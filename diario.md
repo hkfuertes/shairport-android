@@ -231,3 +231,25 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   Advanced category removed from / re-added to the screen (framework preferences have no
   setVisible), explicit android:order keeps its place; root enabling also applied while hidden.
   Verified on screen: collapsed, expanded (enabled, before "Fixed engine"), collapsed again.
+
+## 2026-09-26 (day) — branch feat/status-and-toggle
+
+- Toggle renamed "AirPlay receiver" (start/stop of NQPTP + Shairport Sync + its TinySVCmDNS
+  advertisement; mDNS is NOT Android's NSD). "Fixed engine" row removed.
+- EngineStatus (in-process): supervisor prints `@status nqptp|shairport up|down` markers
+  (applied only for the current engine), Wi-Fi address at start, Shairport metadata
+  snam/pbeg/pend/disc -> "Playing from <sender>". Status rows disabled (read-only) at the very
+  end, after Permissions (root access, moved last). Category headers are never disabled now.
+- Verified on screen: all Running/Advertising/Idle; simulated snam+pbeg -> "Playing from
+  HK15P"; toggle off -> Stopped/Not advertising and no processes; toggle on -> Running.
+- PLAN (user approved all but "Android NSD for mDNS"), branch feat/status-and-toggle:
+  1) remove "Audio output" pref (auto: AAudio on API 26+, AudioTrack on 25);
+  2) "Start at boot" pref -> su installs/removes /data/adb/service.d/shairport.sh (README script);
+  3) Quick Settings tile toggling the receiver; 4) "Stop" action in the notification;
+  5) "Playback mode" -> Advanced. Sync-stats logging stays until a long AAudio session is judged.
+- DONE: Audio output pref removed (AAudio on API 26+, AudioTrack pipe only on 25; adb
+  "audio_output" now unknown). Playback mode -> Advanced. "Start at boot" (BootScript: su writes
+  / removes /data/adb/service.d/shairport.sh; also from adb) verified install+remove. Notification
+  "Stop" action verified (pref off, engine gone). Quick Settings tile verified off/on with
+  `cmd statusbar click-tile` (only works with the panel expanded; FGS start from the tile is
+  allowed: "Background started FGS: Allowed"); tile removed again from the user's QS panel.

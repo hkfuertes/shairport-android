@@ -8,8 +8,9 @@ This is deliberately **not** an upstream source mirror: `make fetch` downloads p
 
 - `MainActivity` (classic XML preferences) asks Magisk for `su`; without root every setting stays disabled.
 - `ReceiverService` (foreground, media playback) writes `shairport-sync.conf` to external app storage and starts one root supervisor shell through `su`. The supervisor runs the APK-packaged `libnqptp.so` and `libshairport_sync.so` executables and lives exactly as long as Shairport. Closing its stdin (service stop, or the app dying) stops everything: Shairport exits cleanly on SIGTERM (Bionic cancellation fixes in patch `android/0005`), with SIGKILL after 3 s as a safety net.
-- Audio: on Android 8+ Shairport plays through **AAudio** itself (patch `0004`), reporting the real output delay so AirPlay 2 timing and multi-room stay in sync. On Android 7 (or when *Audio output* is set to AudioTrack) Shairport's `stdout` backend is piped into an `AudioTrack` in the app, which has no delay feedback.
+- Audio: on Android 8+ Shairport plays through **AAudio** itself (patch `0004`), reporting the real output delay so AirPlay 2 timing and multi-room stay in sync. On Android 7, where AAudio does not exist, Shairport's `stdout` backend is piped into an `AudioTrack` in the app instead, which has no delay feedback.
 - Discovery: TinySVCmDNS inside Shairport, as root, with the app's Wi-Fi `MulticastLock`. Its host name is `shairport-<MAC>.local` because Android reports `localhost` (patch `0003`).
+- Control: the "AirPlay receiver" switch, a Quick Settings tile and the notification's "Stop" all start or stop the whole engine. A Status section shows each part (Shairport Sync, NQPTP, the mDNS advertisement, playback).
 - Volume: Shairport runs with `ignore_volume_control` and sends metadata over loopback UDP; the sender's slider sets Android's music volume. It is one-way on purpose: the phone never sends its volume back to the sender (see HANDOFF).
 - Wi-Fi: while running, the supervisor forces Wi-Fi hi-perf mode (`cmd wifi force-hi-perf-mode`): with the screen off the POCO otherwise stops answering TCP/ARP. A Wi-Fi reconnect or address change restarts the engine and re-acquires the multicast lock; a crash after 30 s of uptime restarts it too.
 
@@ -38,7 +39,7 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key server_name --es value "'Kitchen speaker'"
 
 # list settings take their value or its label: model ("HomePod mini" = AudioAccessory5,1),
-# audio_output (aaudio|stdout), playback_mode. The port is text too.
+# playback_mode. The port is text too.
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key model --es value "'HomePod mini'"
 
@@ -76,7 +77,7 @@ The whole setup works over adb, with no screen interaction, on a Magisk-rooted d
    adb shell su -c "'am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService'"
    ```
 
-5. Start it at every boot with a Magisk `service.d` script, which runs as root:
+5. Start it at every boot with a Magisk `service.d` script, which runs as root. The app's "Start at boot" switch (or `--es key start_at_boot --ez value true` over adb) writes and removes exactly this script. By hand:
 
    ```sh
    cat > shairport.sh <<'SCRIPT'

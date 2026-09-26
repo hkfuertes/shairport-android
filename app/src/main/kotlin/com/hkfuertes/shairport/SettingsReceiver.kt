@@ -18,7 +18,14 @@ class SettingsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val preferences = Prefs.get(context)
         when (intent.action) {
-            ACTION_CONFIGURE -> publish(configure(context, intent, preferences), "Updated")
+            ACTION_CONFIGURE -> {
+                val result = configure(context, intent, preferences)
+                publish(result, "Updated")
+                if (result.getOrNull() == Prefs.START_AT_BOOT) { // installing the script needs su
+                    val pending = goAsync()
+                    Thread({ BootScript.sync(context); pending.finish() }, "boot-script").start()
+                }
+            }
             ACTION_LIST -> publish(list(context, preferences), "Settings")
         }
     }

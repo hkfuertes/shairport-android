@@ -19,6 +19,8 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private lateinit var advanced: PreferenceCategory
     private lateinit var showAdvanced: Preference
     private var advancedShown = false
+    private lateinit var statusCategory: PreferenceCategory
+    private val statusListener: () -> Unit = { runOnUiThread(::refreshStatus) }
     private var rootGranted = false
     private enum class Root { GRANTED, DENIED, MISSING }
     private var rootCheckRunning = false
@@ -33,6 +35,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             requestRoot()
             true
         }
+        statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
         advanced = findPreference(PREF_ADVANCED) as PreferenceCategory
         advanced.findPreference(Prefs.PORT).setOnPreferenceChangeListener { _, value ->
             if (Prefs.isValidPort(value.toString())) {
@@ -53,15 +56,56 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         requestRoot()
     }
 
+    override fun onResume() {
+        super.onResume()
+        EngineStatus.addListener(statusListener)
+        refreshStatus()
+    }
+
+    override fun onPause() {
+        EngineStatus.removeListener(statusListener)
+        super.onPause()
+    }
+
     override fun onDestroy() {
         preferences.unregisterOnSharedPreferenceChangeListener(this)
         super.onDestroy()
     }
 
+    private fun refreshStatus() {
+        if (isFinishing || isDestroyed) return
+        fun summary(key: String, text: String) { statusCategory.findPreference(key).summary = text }
+        fun state(running: Boolean) = getString(if (running) R.string.status_running else R.string.status_stopped)
+        summary("status_shairport", state(EngineStatus.shairport))
+        summary("status_nqptp", state(EngineStatus.nqptp))
+        val address = EngineStatus.address
+        summary(
+            "status_mdns",
+            if (EngineStatus.shairport && address != null) {
+                val name = preferences.getString(Prefs.SERVER_NAME, null)?.takeIf { it.isNotBlank() }
+                    ?: Prefs.deviceName(this)
+                getString(R.string.status_advertising, name, address)
+            } else {
+                getString(R.string.status_not_advertising)
+            },
+        )
+        summary(
+            "status_playback",
+            EngineStatus.source?.let { getString(R.string.status_playing, it) } ?: getString(R.string.status_idle),
+        )
+    }
+
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == Prefs.START_AT_BOOT) {
+            Thread({ BootScript.sync(this) }, "boot-script").start()
+            return
+        }
         if (key != Prefs.RECEIVER_ENABLED) return
-        if (rootGranted && sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) {
+        val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
+        // The tile or the notification's "Stop" may change it while this screen is open.
+        (findPreference(Prefs.RECEIVER_ENABLED) as android.preference.SwitchPreference).isChecked = enabled
+        if (rootGranted && enabled) {
             ReceiverService.start(this)
         } else {
             ReceiverService.stop(this)
@@ -117,17 +161,20 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun setProtectedPreferencesEnabled(enabled: Boolean) {
         val screen = preferenceScreen
         for (i in 0 until screen.preferenceCount) {
-            setPreferenceEnabled(screen.getPreference(i), enabled)
+            val preference = screen.getPreference(i)
+            if (preference !== statusCategory) setPreferenceEnabled(preference, enabled) // info only
         }
         if (!advancedShown) setPreferenceEnabled(advanced, enabled) // off-screen, but kept in step
     }
 
+    /** Rows only: category headers stay as they are (Permissions holds the root row). */
     private fun setPreferenceEnabled(preference: Preference, enabled: Boolean) {
-        if (preference !== rootPreference) preference.isEnabled = enabled
         if (preference is PreferenceGroup) {
             for (i in 0 until preference.preferenceCount) {
                 setPreferenceEnabled(preference.getPreference(i), enabled)
             }
+        } else if (preference !== rootPreference) {
+            preference.isEnabled = enabled
         }
     }
 
@@ -167,6 +214,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val PREF_ADVANCED = "advanced"
+        private const val PREF_STATUS = "status"
         private const val PREF_SHOW_ADVANCED = "show_advanced"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
     }
