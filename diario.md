@@ -224,3 +224,6 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   iOS: any non-Apple model gets iOS's generic speaker-with-waves route icon.
 - ic_model_speaker_wave.png is DRAWN (approximation, 40 px stroke like the set) until the exact
   iOS glyph is extracted from CoreGlyphs.
+- AirPort Express removed (user): iOS shows it with the same generic glyph as Generic.
+  ic_model_speaker_wave.png is now the exact speaker.wave.3.fill SF Symbol provided by the user
+  (replaces my drawn approximation). Model list: Generic, HomePod, HomePod mini.

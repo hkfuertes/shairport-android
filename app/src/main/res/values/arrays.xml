@@ -5,22 +5,19 @@
         <item>Mono</item>
     </string-array>
     <!-- Advertised model (audio devices only): human name -> mDNS `model`/`am` TXT value -> the
-         icon the iPhone's AirPlay list shows for it (checked on iOS: Generic and AirPort Express
-         both get the speaker-with-waves glyph, not macOS's hifispeaker / airport.express). -->
+         icon the iPhone's AirPlay list shows for it. iOS draws any non-Apple model (Generic) with
+         speaker.wave.3.fill, not macOS's hifispeaker (checked on an iPhone). -->
     <string-array name="model_entries">
         <item>Generic</item>
-        <item>AirPort Express</item>
         <item>HomePod</item>
         <item>HomePod mini</item>
     </string-array>
     <string-array name="model_values">
         <item>ShairportSync</item>
-        <item>AirPort10,115</item>
         <item>AudioAccessory1,1</item>
         <item>AudioAccessory5,1</item>
     </string-array>
     <array name="model_icons">
-        <item>@drawable/ic_model_speaker_wave</item>
         <item>@drawable/ic_model_speaker_wave</item>
         <item>@drawable/ic_model_homepod</item>
         <item>@drawable/ic_model_homepod_mini</item>
