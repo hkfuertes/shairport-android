@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.preference.Preference
+import android.preference.PreferenceCategory
 import android.preference.PreferenceGroup
 import android.widget.Toast
 import java.util.concurrent.TimeUnit
@@ -15,6 +16,9 @@ import java.util.concurrent.TimeUnit
 class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var preferences: SharedPreferences
     private lateinit var rootPreference: Preference
+    private lateinit var advanced: PreferenceCategory
+    private lateinit var showAdvanced: Preference
+    private var advancedShown = false
     private var rootGranted = false
     private enum class Root { GRANTED, DENIED, MISSING }
     private var rootCheckRunning = false
@@ -29,7 +33,8 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             requestRoot()
             true
         }
-        findPreference(Prefs.PORT).setOnPreferenceChangeListener { _, value ->
+        advanced = findPreference(PREF_ADVANCED) as PreferenceCategory
+        advanced.findPreference(Prefs.PORT).setOnPreferenceChangeListener { _, value ->
             if (Prefs.isValidPort(value.toString())) {
                 true
             } else {
@@ -37,6 +42,12 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
                 false
             }
         }
+        showAdvanced = findPreference(PREF_SHOW_ADVANCED)
+        showAdvanced.setOnPreferenceClickListener {
+            setAdvancedShown(!advancedShown)
+            true
+        }
+        setAdvancedShown(false)
 
         setProtectedPreferencesEnabled(false)
         requestRoot()
@@ -96,11 +107,19 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         }
     }
 
+    /** Framework preferences can't be hidden, so the Advanced category is removed and re-added. */
+    private fun setAdvancedShown(shown: Boolean) {
+        advancedShown = shown
+        if (shown) preferenceScreen.addPreference(advanced) else preferenceScreen.removePreference(advanced)
+        showAdvanced.setTitle(if (shown) R.string.hide_advanced else R.string.show_advanced)
+    }
+
     private fun setProtectedPreferencesEnabled(enabled: Boolean) {
         val screen = preferenceScreen
         for (i in 0 until screen.preferenceCount) {
             setPreferenceEnabled(screen.getPreference(i), enabled)
         }
+        if (!advancedShown) setPreferenceEnabled(advanced, enabled) // off-screen, but kept in step
     }
 
     private fun setPreferenceEnabled(preference: Preference, enabled: Boolean) {
@@ -147,6 +166,8 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
+        private const val PREF_ADVANCED = "advanced"
+        private const val PREF_SHOW_ADVANCED = "show_advanced"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
     }
 }

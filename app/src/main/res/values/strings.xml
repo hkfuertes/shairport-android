@@ -21,6 +21,9 @@
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
     <string name="audio_output_title">Audio output</string>
     <string name="audio_output_summary">AAudio keeps AirPlay 2 timing (multi-room); AudioTrack is the Android 7 fallback.</string>
+    <string name="show_advanced">Show advanced settings</string>
+    <string name="hide_advanced">Hide advanced settings</string>
+    <string name="advanced_category">Advanced</string>
     <string name="fixed_category">Fixed engine</string>
     <string name="fixed_engine_title">Service, backend, and discovery</string>
     <string name="fixed_engine_summary">Shairport Sync (AirPlay 2) + NQPTP as root, TinySVCmDNS discovery.</string>

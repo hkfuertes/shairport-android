@@ -227,3 +227,7 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 - AirPort Express removed (user): iOS shows it with the same generic glyph as Generic.
   ic_model_speaker_wave.png is now the exact speaker.wave.3.fill SF Symbol provided by the user
   (replaces my drawn approximation). Model list: Generic, HomePod, HomePod mini.
+- Wi-Fi interface, AirPlay port and Audio output moved behind "Show advanced settings": an
+  Advanced category removed from / re-added to the screen (framework preferences have no
+  setVisible), explicit android:order keeps its place; root enabling also applied while hidden.
+  Verified on screen: collapsed, expanded (enabled, before "Fixed engine"), collapsed again.
