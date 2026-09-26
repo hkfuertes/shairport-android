@@ -1,15 +1,22 @@
-.PHONY: help fetch patch clean
+# Everything builds in Docker (see Dockerfile); results land in build/.
+# The host's debug keystore, when present, keeps the APK signature stable across builds.
+ifneq ($(wildcard $(HOME)/.android/debug.keystore),)
+secret := --secret id=debug_keystore,src=$(HOME)/.android/debug.keystore
+endif
 
-help:
-	@echo "make fetch  Download pinned Shairport Sync and NQPTP sources"
-	@echo "make patch  Apply the active Android/Bionic and portable patches"
-	@echo "make clean  Remove downloaded upstream sources"
+.PHONY: all install plugin jnilibs clean
 
-fetch:
-	./scripts/fetch-upstream.sh
+all:
+	docker build $(secret) --output build .
 
-patch:
-	./scripts/apply-patches.sh
+install: all
+	adb install -r build/app-debug.apk
+
+plugin:
+	docker build --target plugin-out --output build/kiosk-plugin .
+
+jnilibs:
+	docker build --target jnilibs --output build/jniLibs .
 
 clean:
-	rm -rf third_party
+	rm -rf build

@@ -21,7 +21,7 @@ android {
 
     sourceSets {
         main {
-            jniLibs.srcDirs('../build/nqptp', '../build/shairport-bin')
+            jniLibs.srcDirs('../build/jniLibs') // from the Dockerfile (make / make jnilibs)
         }
     }
 

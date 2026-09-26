@@ -1,0 +1,14 @@
+# Only what the Dockerfile copies: keeps the context small and the cache stable.
+*
+!app/build.gradle
+!app/src
+!gradle
+!gradlew
+!build.gradle
+!settings.gradle
+!gradle.properties
+!native
+!kiosk-plugin
+kiosk-plugin/dist
+!tests/aaudio
+native/**/*.md
