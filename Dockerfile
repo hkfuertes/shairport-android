@@ -4,8 +4,9 @@
 #
 #   make                  APK + Kiosk Satellite plugin in build/ (default target: out)
 #   make jnilibs          engine only, in build/jniLibs, for Gradle outside Docker
+#   make src              the patched Shairport Sync and NQPTP sources, in build/src
 #
-# Stages: ndk -> deps -> engine -> apk, and sdk -> plugin.
+# Stages: ndk -> deps -> engine (+ engine-src) -> apk, and sdk -> plugin.
 
 ARG DEBIAN=debian:bookworm@sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
 
@@ -40,8 +41,8 @@ COPY native/build-deps.sh /usr/local/bin/
 RUN build-deps.sh arm64-v8a
 RUN build-deps.sh armeabi-v7a
 
-# Shairport Sync and NQPTP: pinned upstream commits plus our patches, for both ABIs.
-FROM deps AS engine
+# Shairport Sync and NQPTP sources: pinned upstream commits plus our patches.
+FROM ndk AS engine-src
 RUN <<'EOF'
 set -eu
 get() {
@@ -58,6 +59,14 @@ RUN for p in /patches/shairport-sync/android/*.patch /patches/shairport-sync/*.p
       patch -d /src/shairport-sync -p1 < "$p" || exit 1; done \
     && for p in /patches/nqptp/*.patch; do patch -d /src/nqptp -p1 < "$p" || exit 1; done \
     && (cd /src/shairport-sync && autoreconf -fi) && (cd /src/nqptp && autoreconf -fi)
+
+# make src: the patched sources in build/src, to read or diff against.
+FROM scratch AS src
+COPY --from=engine-src /src /
+
+# Shairport Sync (a JNI library) and NQPTP (an executable), for both ABIs.
+FROM deps AS engine
+COPY --from=engine-src /src /src
 COPY native/build-engine.sh /usr/local/bin/
 RUN build-engine.sh arm64-v8a && build-engine.sh armeabi-v7a
 

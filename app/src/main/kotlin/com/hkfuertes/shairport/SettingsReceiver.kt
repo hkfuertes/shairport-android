@@ -37,8 +37,9 @@ class SettingsReceiver : BroadcastReceiver() {
     }
 
     /**
-     * One URL-encoded line (key=value&...): state (off, idle or playing), source, title, artist,
-     * album, address, volume (music stream, %) and every setting's current value.
+     * One URL-encoded line (key=value&...): state (off, idle or playing), mode (airplay2 or
+     * classic, while advertised), source, title, artist, album, address, volume (music stream, %)
+     * and every setting's current value.
      */
     private fun status(context: Context, preferences: SharedPreferences): String {
         val audio = context.getSystemService(AudioManager::class.java)
@@ -60,6 +61,7 @@ class SettingsReceiver : BroadcastReceiver() {
             "artist" to EngineStatus.artist,
             "album" to EngineStatus.album,
             "address" to EngineStatus.address,
+            "mode" to if (!EngineStatus.advertising) null else if (EngineStatus.airplay2) "airplay2" else "classic",
         ).forEach { (key, value) -> if (value != null) query.appendQueryParameter(key, value) }
         Prefs.defaults(context).forEach { (key, default) ->
             query.appendQueryParameter(key, (preferences.all[key] ?: default).toString())
@@ -91,7 +93,6 @@ class SettingsReceiver : BroadcastReceiver() {
             require(value::class == default::class) {
                 "$key expects ${typeName(default)}; got ${typeName(value)}"
             }
-            if (key == Prefs.PORT) require(Prefs.isValidPort(value as String)) { "port must be 1-65535" }
             // List settings take the value or its human label ("HomePod mini" = AudioAccessory5,1).
             val stored: Any = Prefs.choices(context)[key]?.let { allowed ->
                 val labels = Prefs.labels(context).getValue(key)

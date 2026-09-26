@@ -220,7 +220,8 @@ public final class ShairportPlugin implements KioskPlugin {
             return "Playing from " + app.get("source") + (track.isEmpty() ? "" : ": " + track);
         }
         if ("idle".equals(app.get("state"))) {
-            return "Waiting for AirPlay as \"" + name + "\"" + (app.containsKey("address") ? " on " + app.get("address") : "");
+            return "Waiting for AirPlay as \"" + name + "\"" + (app.containsKey("address") ? " on " + app.get("address") : "")
+                + ("airplay2".equals(app.get("mode")) ? " (AirPlay 2)" : "classic".equals(app.get("mode")) ? " (classic AirPlay)" : "");
         }
         return "true".equals(app.get("receiver_enabled")) ? "Receiver not running" : "Receiver off";
     }

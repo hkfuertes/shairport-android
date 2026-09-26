@@ -4,7 +4,7 @@ ifneq ($(wildcard $(HOME)/.android/debug.keystore),)
 secret := --secret id=debug_keystore,src=$(HOME)/.android/debug.keystore
 endif
 
-.PHONY: all install plugin jnilibs clean
+.PHONY: all install plugin jnilibs src clean
 
 all:
 	docker build $(secret) --output build .
@@ -17,6 +17,9 @@ plugin:
 
 jnilibs:
 	docker build --target jnilibs --output build/jniLibs .
+
+src:
+	docker build --target src --output build/src .
 
 clean:
 	rm -rf build

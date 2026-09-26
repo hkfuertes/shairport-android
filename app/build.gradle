@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId 'com.hkfuertes.shairport'
-        minSdk 25
+        minSdk 27 // AAudio is reliable from 8.1 (Oboe uses it from there)
         targetSdk 35
         versionCode 1
         versionName '0.1.0'

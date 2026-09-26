@@ -14,8 +14,8 @@ import me.jxl.kiosk.plugins.PluginHost;
 public final class ShairportPluginTest {
     static final String STATUS_OK = "Broadcasting: Intent { act=com.hkfuertes.shairport.GET_STATUS }\n"
         + "Broadcast completed: result=-1, data=\"state=playing&volume=40&source=iPhone%20de%20Ana&title=Song&artist=A%26B"
-        + "&address=192.168.1.5&receiver_enabled=true&server_name=Kitchen&model=AudioAccessory5%2C1"
-        + "&network_interface=wlan0&port=7000&start_at_boot=false&playback_mode=stereo\"\n";
+        + "&address=192.168.1.5&mode=airplay2&receiver_enabled=true&airplay_2=true&server_name=Kitchen"
+        + "&model=AudioAccessory5%2C1&start_at_boot=false&playback_mode=stereo\"\n";
 
     static final class Host implements PluginHost {
         boolean granted = true;
@@ -57,6 +57,7 @@ public final class ShairportPluginTest {
     static Map<String, Object> form(boolean enabled, String name, String model) {
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("receiver_enabled", enabled);
+        settings.put("airplay_2", true);
         settings.put("server_name", name);
         settings.put("model", model);
         settings.put("playback_mode", "Stereo");
@@ -178,5 +179,8 @@ public final class ShairportPluginTest {
             put("a", "1"); put("b", "x y+z"); put("c", "");
         }});
         assert Arrays.asList(ShairportPlugin.set("start_at_boot", true)).contains("--ez");
+        Map<String, String> idle = ShairportPlugin.query("state=idle&server_name=Kitchen&address=10.0.0.2&mode=airplay2");
+        assert ShairportPlugin.summary(idle).equals("Waiting for AirPlay as \"Kitchen\" on 10.0.0.2 (AirPlay 2)")
+            : ShairportPlugin.summary(idle);
     }
 }

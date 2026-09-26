@@ -55,7 +55,7 @@
 +// request wait indefinitely for a silent AirPlay 1 or 2 socket to receive another packet.
 +static int android_wait_for_ap2_packet(int socket_fd) {
 +  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
-+  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
++  // EINTR is the SIGRTMIN cancel wake-up: test it now instead of polling again.
 +  int rc = poll(&poll_fd, 1, 250);
 +  pthread_testcancel();
 +  return rc > 0;
@@ -95,7 +95,7 @@
        usleep(300000); // these are thread cancellation points
      else
        usleep(3000000);
-+    pthread_testcancel(); // not on Bionic: SIGUSR1 only interrupts the sleep
++    pthread_testcancel(); // not on Bionic: SIGRTMIN only interrupts the sleep
    }
    debug(3, "rtp_timing_sender thread interrupted. This should never happen.");
    pthread_cleanup_pop(0); // don't execute anything here.
@@ -121,7 +121,7 @@
 -// request wait indefinitely for a silent AP2 socket to receive another packet.
 -static int android_wait_for_ap2_packet(int socket_fd) {
 -  struct pollfd poll_fd = {.fd = socket_fd, .events = POLLIN, .revents = 0};
--  // EINTR is the SIGUSR1 cancel wake-up: test it now instead of polling again.
+-  // EINTR is the SIGRTMIN cancel wake-up: test it now instead of polling again.
 -  int rc = poll(&poll_fd, 1, 250);
 -  pthread_testcancel();
 -  return rc > 0;

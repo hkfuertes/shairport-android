@@ -9,6 +9,10 @@
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
         <SwitchPreference
+            android:key="airplay_2"
+            android:summary="@string/airplay_2_summary"
+            android:title="@string/airplay_2_title" />
+        <SwitchPreference
             android:key="start_at_boot"
             android:summary="@string/start_at_boot_summary"
             android:title="@string/start_at_boot_title" />
@@ -38,15 +42,6 @@
         android:key="advanced"
         android:order="3"
         android:title="@string/advanced_category">
-        <EditTextPreference
-            android:key="network_interface"
-            android:summary="@string/interface_summary"
-            android:title="@string/interface_title" />
-        <EditTextPreference
-            android:inputType="number"
-            android:key="port"
-            android:summary="@string/port_summary"
-            android:title="@string/port_title" />
         <ListPreference
             android:entries="@array/playback_mode_entries"
             android:entryValues="@array/playback_mode_values"
