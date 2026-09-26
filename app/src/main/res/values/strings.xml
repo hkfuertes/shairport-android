@@ -4,7 +4,8 @@
     <string name="root_access_title">Root access</string>
     <string name="root_access_checking">Requesting Magisk root access…</string>
     <string name="root_access_granted">Root access granted</string>
-    <string name="root_access_denied">Tap to request root access</string>
+    <string name="root_access_denied">Denied by Magisk. Allow Shairport AP2 in Magisk > Superuser, then tap here.</string>
+    <string name="root_access_missing">No su binary found: this app needs a rooted device (Magisk).</string>
     <string name="receiver_category">Receiver</string>
     <string name="receiver_enabled_title">Keep receiver service active</string>
     <string name="receiver_enabled_summary">Starts the foreground service and preserves Wi-Fi multicast.</string>

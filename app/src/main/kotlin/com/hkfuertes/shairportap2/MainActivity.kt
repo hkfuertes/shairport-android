@@ -17,6 +17,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private lateinit var preferences: SharedPreferences
     private lateinit var rootPreference: Preference
     private var rootGranted = false
+    private enum class Root { GRANTED, DENIED, MISSING }
     private var rootCheckRunning = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,19 +71,24 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         rootPreference.setSummary(R.string.root_access_checking)
         setProtectedPreferencesEnabled(false)
         Thread({
-            val granted = hasRoot()
-            runOnUiThread { applyRootResult(granted) }
+            val root = rootStatus()
+            runOnUiThread { applyRootResult(root) }
         }, "root-check").start()
     }
 
-    private fun applyRootResult(granted: Boolean) {
+    private fun applyRootResult(root: Root) {
         if (isFinishing || isDestroyed) return
 
         rootCheckRunning = false
+        val granted = root == Root.GRANTED
         rootGranted = granted
         rootPreference.isEnabled = true
         rootPreference.setSummary(
-            if (granted) R.string.root_access_granted else R.string.root_access_denied,
+            when (root) {
+                Root.GRANTED -> R.string.root_access_granted
+                Root.DENIED -> R.string.root_access_denied
+                Root.MISSING -> R.string.root_access_missing
+            },
         )
         setProtectedPreferencesEnabled(granted)
 
@@ -130,18 +136,25 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         PREF_AUDIO_OUTPUT,
     )
 
-    private fun hasRoot(): Boolean {
+    /**
+     * `su` itself makes Magisk show its grant prompt, but only while Magisk has no saved answer:
+     * a saved "deny" (also left by a prompt that timed out) is applied silently, no prompt.
+     */
+    private fun rootStatus(): Root {
         var process: Process? = null
         return try {
             process = ProcessBuilder("su", "-c", "id")
                 .redirectErrorStream(true)
                 .start()
-            if (!process.waitFor(ROOT_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return false
+            if (!process.waitFor(ROOT_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return Root.DENIED
             process.inputStream.bufferedReader().use { output ->
-                process.exitValue() == 0 && output.readText().contains("uid=0")
+                if (process.exitValue() == 0 && output.readText().contains("uid=0")) Root.GRANTED
+                else Root.DENIED
             }
+        } catch (_: java.io.IOException) {
+            Root.MISSING // no su binary at all
         } catch (_: Exception) {
-            false
+            Root.DENIED
         } finally {
             process?.destroy()
         }

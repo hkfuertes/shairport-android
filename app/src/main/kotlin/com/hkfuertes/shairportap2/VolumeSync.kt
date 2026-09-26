@@ -50,7 +50,8 @@ class VolumeSync(context: Context) {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val index = toIndex(airplayVolume, max)
         if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) != index) {
-            audio.setStreamVolume(AudioManager.STREAM_MUSIC, index, 0)
+            // One master volume: the sender drives Android's own, with the system volume bar.
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, index, AudioManager.FLAG_SHOW_UI)
         }
         Log.i(TAG, "AirPlay volume $airplayVolume -> music stream $index/$max")
     }
