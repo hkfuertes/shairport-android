@@ -285,3 +285,43 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   Album; Volume %). Tested with a fake host in the Dockerfile (ShairportPluginTest); not yet run
   inside Kiosk Satellite (neither KS nor Shizuku is installed on the POCO). SDK 1 has no
   media_player: README shows a Home Assistant universal media player over the entities.
+
+## 2026-09-26 (evening) — branch feat/rootless-engine
+
+- User decisions: "todo lo que pueda ir por Android, que vaya por Android". Shairport as JNI in
+  a process of its own (`:engine`) rather than an app child process (Android 12+ polices those
+  as phantom processes); root only for NQPTP, behind an "AirPlay 2 (multi-room)" switch; mDNS
+  through NsdManager; floor Android 8.1 (API 27: AAudio, which Oboe trusts from 8.1); keep
+  arm64 and armv7. The Echo (7.1, can't be patched) is out. Boot start stays service.d.
+- Build: Shairport linked with `-shared` + a version script (only JNI_OnLoad/Java_* exported):
+  linked first try for both ABIs (static deps are PIE/emutls, fine in a .so; NEEDED only
+  libc/libm/libdl/liblog). `make src` exports the patched sources (new engine-src stage, which
+  no longer depends on the deps stage). Engine rebuild ~1.5 min, APK ~3 min, deps cached.
+- Pitfalls: WifiLock needs WAKE_LOCK (service crashed on create). ART blocks SIGUSR1 in all
+  threads (SigBlk 0x80001204 = QUIT, USR1, PIPE, 32), so the cancel shim moved to SIGRTMIN.
+  get_device_id() waited 10 s for a MAC an app can't see (start -> advertised went 12 s -> 2 s
+  once patched). Upstream overwrites general.port after parsing (7000 AP2 / 5000 classic): the
+  port setting never did anything, removed, with the mDNS-only interface setting. `adb shell`
+  re-splits arguments: `--es value "Poco F1"` stored "Poco" (quote twice, as the README says).
+- Bug found and fixed (android/0005): a session that ended hung the receiver. rtsp_1_1 sat in
+  pthread_join, player_1 looped in buffer_get_frame()'s pthread_cond_timedwait (a cancellation
+  point on glibc only), the TEARDOWN was never answered and the next sender got no answer at
+  all. Found with `debuggerd -b <pid>` (stripped .so, but libc frames name the waits). Present
+  in the root design too (same code).
+- Test sender without an iPhone: AirConnect's cliraop (`/tmp/cliraop -p 7000 -v 0 -a <ip>
+  file.pcm`, ALAC). With zeros it exercises the whole path silently; -v 0 sets Android's music
+  volume to 0 through pvol, so restore it afterwards (`su -c 'cmd media_session volume
+  --stream 3 --set N'`).
+- Verified on the POCO (Android 15): classic AirPlay as the app uid, no su; AirPlay 2 with
+  NQPTP as root and Shairport as the app uid (NQPTP's SMI v10 file is 0644 and read-only for
+  clients: readable through /storage/emulated); `_airplay._tcp` + `_raop._tcp` with full TXT
+  (avahi-browse), device ID 5E:0F:BA:E1:91:59 from ANDROID_ID; goodbyes on stop; engine and
+  NQPTP gone 0.84 s after stop (engine ~160 ms after unbind) and after force-stop; kill -9 of
+  the engine after 30 s -> restarted; renames re-advertised; metadata (nc) -> GET_STATUS
+  playing/idle across processes; settings screen and status rows (screenshot). 32-bit too:
+  `adb install --abi armeabi-v7a` runs app and engine in app_process32 with the 32-bit NQPTP,
+  AirPlay 2 advertised. Audio: cliraop sessions (silence) -> "Classic AirPlay playback,
+  ALAC/44100", AAudio sync error -0.07 ms, window 0.15 ms; "Can not set realtime properties
+  of thread player_1" (no SCHED_FIFO as an app).
+- Not verified yet: iPhone playback (AirPlay 2 realtime/buffered), grouping from iOS (TXT
+  re-registration through NsdManager), the plugin inside Kiosk Satellite.
