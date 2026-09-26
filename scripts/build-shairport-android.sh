@@ -27,7 +27,7 @@ for abi in armeabi-v7a arm64-v8a; do
   cd "$build"
   # Incremental: configure once per ABI (bump the stamp when changing flags);
   # automake reruns configure itself if configure.ac changes.
-  stamp='airplay-2 tinysvcmdns stdout metadata-multicast openssl v2'
+  stamp='airplay-2 tinysvcmdns stdout aaudio metadata-multicast openssl v3'
   if [ "$(cat .android-configure 2>/dev/null)" != "$stamp" ]; then
     # ponytail: Bionic malloc probes cannot run while cross-compiling; static libgcrypt needs gpg-error.
     PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig" PKG_CONFIG_PATH="$prefix/lib/pkgconfig" \
@@ -37,7 +37,7 @@ for abi in armeabi-v7a arm64-v8a; do
       CFLAGS='-O2 -fPIC' CPPFLAGS="-I$prefix/include" \
       LDFLAGS="-L$prefix/lib -static-libstdc++ -Wl,--as-needed" LIBS=-lgpg-error \
       "$source/configure" --host="$host" --build=x86_64-pc-linux-gnu \
-        --with-airplay-2 --with-tinysvcmdns --with-stdout --with-metadata-multicast \
+        --with-airplay-2 --with-tinysvcmdns --with-stdout --with-aaudio --with-metadata-multicast \
         --with-ssl=openssl
     printf '%s\n' "$stamp" > .android-configure
   fi

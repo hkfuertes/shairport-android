@@ -149,7 +149,7 @@ class ReceiverService : Service() {
         }, "engine-log").start()
         Thread({
             try {
-                play(process.inputStream)
+                if (AAUDIO) drain(process.inputStream) else play(process.inputStream)
             } catch (error: Exception) {
                 Log.e(TAG, "Audio output failed", error)
             }
@@ -233,7 +233,14 @@ class ReceiverService : Service() {
         process.destroy()
     }
 
-    // ponytail: plain blocking PCM pump; Shairport paces output, no sync feedback from AudioTrack.
+    /** AAudio mode: Shairport plays by itself; stdout only tells us when it exits. */
+    private fun drain(input: InputStream) {
+        val buffer = ByteArray(512)
+        while (input.read(buffer) >= 0) Unit
+    }
+
+    // ponytail: API 25 fallback (no AAudio). Plain blocking PCM pump without delay feedback to
+    // Shairport, so the DAC clock drifts against the sender's over long sessions.
     private fun play(input: InputStream) {
         val minimum = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
@@ -281,7 +288,7 @@ class ReceiverService : Service() {
           interface = ${quote(value(preferences, MainActivity.PREF_NETWORK_INTERFACE, "wlan0"))};
           port = ${port(value(preferences, MainActivity.PREF_PORT, "7000"))};
           playback_mode = ${quote(value(preferences, MainActivity.PREF_PLAYBACK_MODE, "stereo"))};
-          output_backend = "stdout";
+          output_backend = ${if (AAUDIO) "\"aaudio\"" else "\"stdout\""};
           mdns_backend = "tinysvcmdns";
           ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
         };
@@ -374,6 +381,8 @@ class ReceiverService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000
         private const val SAMPLE_RATE = 44100
+        /** Shairport's aaudio backend (real output delay -> sync) needs libaaudio.so. */
+        private val AAUDIO = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         private const val BYTES_PER_FRAME = 4 // S16_LE stereo
         private const val CONFIG_FILE = "shairport-sync.conf"
         private const val SHM_DIRECTORY = "nqptp-shm"

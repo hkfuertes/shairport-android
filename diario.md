@@ -90,3 +90,15 @@ Found:
   MulticastLock must be released+re-acquired: after `svc wifi disable/enable` the POCO
   received zero multicast (InMcastPkts frozen) despite the held lock. Verified fixed
   (mDNS 3/3 after toggle, TCP OK screen off).
+- 03:50 **AAudio backend** (patch 0004, `--with-aaudio`): the stdout pipe gives Shairport
+  no output-delay feedback -> DAC vs sender clock drift over long sessions + multiroom
+  offset. AAudio works from the root native process (silent probe: 44.1k/2ch/I16,
+  timestamps OK). Backend dlopen()s libaaudio.so (binary stays API 25), blocking writes
+  into a 16384-frame deep buffer, delay() = written - presented (getTimestamp,
+  CLOCK_MONOTONIC), flush/stop close the stream (clean counters), reopen on DISCONNECTED.
+  `tests/aaudio/run.sh` = device check (zeros only): PASS, delay ~347 ms stable.
+  App: API>=26 -> output_backend "aaudio" (stdout just signals exit); API 25 -> old pipe.
+- pyatv can't exercise Shairport at all: AP2 uses NTP timing (unsupported), classic
+  sends L16 which this build fails to decode (AVERROR_INVALIDDATA). Needs an Apple sender.
+- A pyatv session that never tears down makes SIGTERM hang Shairport (seen twice): the
+  watcher's SIGKILL covers the app engine; manual test instances need kill -9.
