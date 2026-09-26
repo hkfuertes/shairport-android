@@ -392,7 +392,6 @@ class ReceiverService : Service() {
         private const val MIN_UPTIME_FOR_RESTART_MS = 30_000L
         private const val RESTART_DELAY_MS = 2_000L
 
-
         fun start(context: Context) {
             val intent = Intent(context, ReceiverService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -19,6 +19,7 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 
 /**
@@ -35,6 +36,7 @@ class VolumeSync(private val context: Context) {
     private val socket = DatagramSocket(0, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
     private val sender = Executors.newSingleThreadExecutor()
     @Volatile private var appliedIndex = -1
+    private val pendingIndex = AtomicInteger(-1)
     @Volatile private var dacpId: String? = null
     @Volatile private var activeRemote: String? = null
     @Volatile private var clientIp: String? = null
@@ -50,7 +52,9 @@ class VolumeSync(private val context: Context) {
             // Ignore our own echo: the index we just applied from the sender.
             if (index < 0 || index == appliedIndex) return
             appliedIndex = index
-            sender.execute { sendToSender(index) }
+            // Coalesce key repeats: queued tasks send only the latest index.
+            pendingIndex.set(index)
+            sender.execute { pendingIndex.getAndSet(-1).takeIf { it >= 0 }?.let(::sendToSender) }
         }
     }
 
@@ -176,7 +180,7 @@ class VolumeSync(private val context: Context) {
         private const val EXTRA_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
         private const val EXTRA_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
         private const val TIMEOUT_MS = 2000
-        private const val RESOLVE_TIMEOUT_SECONDS = 5L
+        private const val RESOLVE_TIMEOUT_SECONDS = 3L
 
         /** AirPlay volume is -144 (mute) or -30..0 dB, linear on the sender's slider. */
         fun toIndex(airplayVolume: Double, max: Int): Int =
