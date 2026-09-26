@@ -2,7 +2,7 @@
 # The whole build. Upstream sources are downloaded here at pinned versions and checked against
 # the checksums below; the repository keeps only its own code and patches (native/patches).
 #
-#   make                  APK + Kiosk Satellite plugin in build/ (default target: out)
+#   make                  release APK + Kiosk Satellite plugin in build/ (default target: out)
 #   make jnilibs          engine only, in build/jniLibs, for Gradle outside Docker
 #   make src              the patched Shairport Sync and NQPTP sources, in build/src
 #
@@ -54,11 +54,11 @@ get shairport-sync 7bad231c18368dbd26f298577f6210e36e4b0797 eab1fa095e34676d05f6
 get nqptp c925f27c1fd12e4033ac477e5a405969b0b0260b d2c2fe5d2574d447a817b1585e82c38f4c98774dac8284e5a3f17e188a3a75f9
 EOF
 COPY native/patches /patches
-# Order: shairport-sync/android/* (Bionic) before shairport-sync/*; see native/patches/README.md.
-RUN for p in /patches/shairport-sync/android/*.patch /patches/shairport-sync/*.patch; do \
-      patch -d /src/shairport-sync -p1 < "$p" || exit 1; done \
-    && for p in /patches/nqptp/*.patch; do patch -d /src/nqptp -p1 < "$p" || exit 1; done \
-    && (cd /src/shairport-sync && autoreconf -fi) && (cd /src/nqptp && autoreconf -fi)
+# Each project's patches in file-name order; see native/patches/README.md.
+RUN for d in shairport-sync nqptp; do \
+      for p in /patches/$d/*.patch; do patch -d /src/$d -p1 < "$p" || exit 1; done; \
+      (cd /src/$d && autoreconf -fi) || exit 1; \
+    done
 
 # make src: the patched sources in build/src, to read or diff against.
 FROM scratch AS src
@@ -103,10 +103,11 @@ COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle gradle
 COPY app app
 COPY --from=engine /out build/jniLibs
-# make passes the host's debug keystore, so the signature (and adb install -r) stays stable.
+# The release APK is signed with the debug key; make passes the host's, so the signature (and
+# adb install -r) stays stable.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
-    ./gradlew --no-daemon --console=plain :app:assembleDebug
+    ./gradlew --no-daemon --console=plain :app:assembleRelease
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin
@@ -125,5 +126,5 @@ FROM scratch AS plugin-out
 COPY --from=plugin /plugin/dist/*.zip /plugin/dist/*.zip.sha256 /plugin/dist/kiosk-satellite-plugin.json /
 
 FROM scratch AS out
-COPY --from=apk /work/app/build/outputs/apk/debug/app-debug.apk /
+COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk /
 COPY --from=plugin-out / /kiosk-plugin/

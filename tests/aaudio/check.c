@@ -1,4 +1,4 @@
-// Device check for Shairport's aaudio backend (patches/shairport-sync/0004).
+// Device check for Shairport's aaudio backend (native/patches/shairport-sync/0007).
 // Plays only zeros. Build and run with tests/aaudio/run.sh.
 #include "audio_aaudio.c"
 

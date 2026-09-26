@@ -1,36 +1,24 @@
 # Shairport
 
-An Android app (8.1 or later, arm64 and 32-bit ARM) that turns the device into an AirPlay receiver: Shairport Sync 5.5.1 as a JNI library inside the app, with Android's own mDNS (NsdManager). It needs no root for classic AirPlay. AirPlay 2 (multi-room) is an option that needs root, only for NQPTP 1.2.8, its timing service. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
+An AirPlay receiver for Android 8.1 or later (arm64 and 32-bit ARM). [Shairport Sync](https://github.com/mikebrady/shairport-sync) 5.5.1 runs inside the app as a JNI library and advertises itself through Android's own mDNS. Classic AirPlay needs no root; AirPlay 2 (multi-room) needs root only for [NQPTP](https://github.com/mikebrady/nqptp) 1.2.8, its timing service. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
 
-This is deliberately **not** an upstream source mirror: the repository keeps only its own code and patches. The Dockerfile downloads the pinned upstream sources, checks their checksums and applies the Android patch stack. A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk and Home Assistant.
+A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk and Home Assistant.
 
-## How it works
+## Use
 
-- `ReceiverService` (foreground, media playback) writes `shairport-sync.conf` and binds `EngineService`, which runs in a process of its own (`:engine`). There Shairport Sync runs as a JNI library (`libshairport_sync.so`, patch `0003`), once per process: unbinding asks it to exit, which ends the process, and the next start gets a fresh one. Its log goes to logcat (tag `Shairport`).
-- Discovery: Shairport's `android` mDNS backend hands its services and TXT records to `NsdManager`, so Android's own responder advertises them and follows address changes. The app holds a Wi-Fi `MulticastLock`.
-- AirPlay 2: off by default, the receiver is a classic AirPlay (AirPlay 1) one and needs no root. The "AirPlay 2 (multi-room)" switch asks Magisk for `su` and runs NQPTP (UDP ports 319/320 need root) in a root watcher until the app stops it or dies. Shairport, still as the app, reads NQPTP's shared memory from external app storage; without NQPTP it falls back to classic AirPlay. The advertised device ID comes from `ANDROID_ID` (apps can't read the MAC address).
-- Audio: Shairport plays through **AAudio** (patch `0002`) and reports the real output delay, so AirPlay 2 timing and multi-room stay in sync. That is why Android 8.1 is the minimum.
-- The advertised model (the icon senders show) is an AirPlay 2 choice: classic AirPlay advertises the generic one.
-- Control: the "AirPlay receiver" switch, a Quick Settings tile and the notification's "Stop" all start or stop the receiver. A Status section shows each part (Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback).
-- Volume: Shairport runs with `ignore_volume_control` and sends metadata over loopback UDP; the sender's slider sets Android's music volume. It is one-way on purpose: the phone never sends its volume back to the sender (see HANDOFF).
-- Wi-Fi: the app holds a high-performance Wi-Fi lock, which keeps the receiver reachable with the screen off up to Android 13. From Android 14 app locks only work with the screen on; with AirPlay 2 on, the root watcher forces Wi-Fi hi-perf mode instead (`cmd wifi force-hi-perf-mode`), without which the POCO stops answering TCP/ARP with the screen off. A crash after 30 s of uptime restarts the receiver.
+Install `app-release.apk` (see [Build](#build)) and open Shairport:
 
-## Build
+- **AirPlay receiver** starts or stops it, as do the Quick Settings tile and the notification's *Stop*.
+- **AirPlay 2 (multi-room)** asks Magisk for root to run NQPTP. Without root the receiver stays classic AirPlay.
+- **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
+- **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
+- **Status** shows each part: Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback.
 
-Everything builds in Docker, from a clean clone, with nothing else on the host:
-
-```sh
-make           # build/app-debug.apk and build/kiosk-plugin/
-make install   # and adb install -r
-```
-
-The [Dockerfile](Dockerfile) downloads the NDK, the static dependencies (popt, libconfig, libsodium, libgpg-error, libgcrypt, libplist, OpenSSL, FFmpeg, libuuid), Shairport Sync and NQPTP at pinned versions, checks their checksums, applies [`native/patches`](native/patches/README.md) and builds arm64-v8a and armeabi-v7a, then the APK and the plugin. Docker's layer cache replaces incremental builds: a patch change rebuilds only Shairport Sync and NQPTP, a Kotlin change only reruns Gradle. The first build takes a while. `make` passes `~/.android/debug.keystore` as a build secret, so the debug signature stays stable across builds. `make jnilibs` exports only the engine to `build/jniLibs`, which `app/build.gradle` packages, for Gradle builds outside Docker (Android Studio).
-
-`make src` exports the patched upstream sources to `build/src`. `tests/aaudio/run.sh [serial]` checks the AAudio backend on a rooted device, writing only zeros.
+The sender's volume slider sets Android's music volume.
 
 ## Configure from ADB
 
-Settings can be written with an explicit `adb shell` broadcast: one typed `key`/`value` pair per call, stored in the same preferences the settings screen uses. The receiver is protected by `android.permission.DUMP`, so regular apps cannot use it. Unknown keys, wrong types and values outside a list setting's choices are rejected. A running receiver applies changes at once (restarting the engine when the configuration changed); otherwise they apply the next time the app starts it.
+Settings can be written with an explicit `adb shell` broadcast: one typed `key`/`value` pair per call, stored in the same preferences the settings screen uses. The receiver is protected by `android.permission.DUMP`, so regular apps cannot use it. Unknown keys, wrong types and values outside a list setting's choices are rejected. A running receiver applies changes at once (restarting the engine when the configuration changed); otherwise they apply the next time it starts.
 
 ```sh
 # text (the advertised name defaults to Android's device name). adb shell re-splits the command
@@ -60,20 +48,20 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
   -a com.hkfuertes.shairport.LIST_SETTINGS
 ```
 
-The current state, for the [Kiosk Satellite plugin](#kiosk-satellite-plugin), as one URL-encoded line: `state` (`off`, `idle` or `playing`), `mode` (`airplay2` or `classic`, while advertised), `source`, `title`, `artist`, `album`, `address`, `volume` (music stream, %) and every setting's value:
+The current state as one URL-encoded line: `state` (`off`, `idle` or `playing`), `mode` (`airplay2` or `classic`, while advertised), `source`, `title`, `artist`, `album`, `address`, `volume` (music stream, %) and every setting's value:
 
 ```sh
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.GET_STATUS
 ```
 
-Turning the receiver on over adb only takes effect when the receiver is next started: from the app, or as in [Headless setup](#headless-setup).
+Turning the receiver on over adb takes effect the next time it starts: from the app, or as in [Headless setup](#headless-setup).
 
 ## Headless setup
 
-The whole setup works over adb, with no screen interaction. Root is only needed for AirPlay 2; step 2 assumes a Magisk-rooted device whose adb shell already has root (Magisk > Superuser > Shell allowed). Verified on the POCO F1 with Magisk 30.7.
+The whole setup works over adb, with no screen interaction. Root is only needed for AirPlay 2; step 2 assumes a Magisk-rooted device whose adb shell already has root (Magisk > Superuser > Shell allowed). Verified with Magisk 30.7.
 
-1. Install: `adb install app-debug.apk`.
+1. Install: `adb install app-release.apk`.
 2. For AirPlay 2, grant the app root without Magisk's prompt, by writing Magisk's policy database (`policy` 2 = grant, 1 = deny; `until` 0 = forever; the last two columns are Magisk's log and toast):
 
    ```sh
@@ -83,22 +71,22 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 
    Stick to plain `SELECT`/`REPLACE`/`DELETE` statements: a `PRAGMA` query crashed `magiskd` on Magisk 30.7, and root was gone until the next reboot.
 3. Configure it as in [Configure from ADB](#configure-from-adb).
-4. Start the receiver without opening the app (the service is exported only to holders of `android.permission.DUMP`: adb, Shizuku, root; no root needed):
+4. Start the receiver without opening the app (the service is exported only to holders of `android.permission.DUMP`: adb, Shizuku, root):
 
    ```sh
    adb shell am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService
    ```
 
-5. Start it at every boot: `--es key start_at_boot --ez value true` (the "Start at boot" switch). The app starts the receiver on `BOOT_COMPLETED`, which on a device with a secure lock screen arrives after the first unlock. Older versions used a Magisk `service.d` script instead; remove a leftover one with `adb shell su -c 'rm -f /data/adb/service.d/shairport.sh'`.
+5. Start it at every boot: `--es key start_at_boot --ez value true`.
 
 ## Kiosk Satellite plugin
 
-[`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and it keeps running the receiver. The plugin uses the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
+[`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and the app keeps running the receiver. The plugin drives the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
-- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Start at boot. The status line says whether the receiver runs as AirPlay 2 or classic AirPlay. They show the app's current values, including changes made in the app itself.
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Start at boot. They show the app's current values, including changes made in the app itself, and the status line says whether the receiver runs as AirPlay 2 or classic AirPlay.
 - Home Assistant (ESPHome with native entities enabled in Kiosk Satellite): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
-Install it with this repository's URL in **Plugin Manager > Add plugin** (each GitHub release carries the plugin, attached by `.github/workflows/release.yml`), or build it with `make plugin` and use **Developer Tools > Install from ZIP** with `build/kiosk-plugin/shairport-*.zip`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
+Install it with this repository's URL in **Plugin Manager > Add plugin** (every GitHub release carries it), or with **Developer Tools > Install from ZIP** and `build/kiosk-plugin/shairport-*.zip`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
 
 The plugin SDK has no media player entity. A Home Assistant [universal media player](https://www.home-assistant.io/integrations/universal/) can wrap the entities (replace the entity IDs with yours):
 
@@ -117,15 +105,67 @@ media_player:
       turn_off: {action: switch.turn_off, target: {entity_id: switch.kiosk_shairport_airplay_receiver}}
 ```
 
-Playback control (play, pause, next) is not exposed: like the volume, it would need DACP back to the sender (see HANDOFF).
+## Limitations
+
+- Volume goes one way, sender to Android, and Android can't pause or skip. Both would need DACP back to the sender: receiver-to-sender volume isn't in a stable Shairport Sync release yet, and one speaker pushing its volume misbehaves in multi-room groups.
+- Home app: only the Generic model can be added. Home never offers a HomePod model, and the home hub removes an accessory that switches to one. Shairport keeps HomeKit pairings in memory only; whether Home survives an engine restart is still unchecked.
+- Screen off: from Android 14 an app's Wi-Fi lock only works with the screen on. With AirPlay 2, the root watcher forces Wi-Fi high-performance mode instead; without root the device may stop answering (the POCO does).
+- Ports are fixed: 7000 for AirPlay 2, 5000 for classic AirPlay (upstream ignores `general.port`).
+- An app can't give the player thread realtime priority: watch for underruns under load.
+- armeabi-v7a was verified on the POCO in 32-bit mode (`adb install --abi armeabi-v7a`), not on a 32-bit-only device.
+
+## Build
+
+Everything builds in Docker from a clean clone; the host needs nothing else:
+
+```sh
+make           # build/app-release.apk and build/kiosk-plugin/
+make install   # and adb install -r
+```
+
+The repository keeps only its own code and patches. The [Dockerfile](Dockerfile) downloads the NDK, the static dependencies (popt, libconfig, libsodium, libgpg-error, libgcrypt, libplist, OpenSSL, FFmpeg, libuuid), Shairport Sync and NQPTP at pinned versions, checks their checksums, applies [`native/patches`](native/patches/README.md), builds both ABIs, then the APK and the plugin. Docker's layer cache stands in for incremental builds: a patch change rebuilds only Shairport Sync and NQPTP, a Kotlin change only reruns Gradle. The first build takes a while.
+
+The APK is a release build signed with the debug key: `make` passes `~/.android/debug.keystore` as a build secret, so every build installs over the last one and keeps the AirPlay device ID (it comes from `ANDROID_ID`, which depends on the signing key).
+
+- `make plugin`: only the plugin, in `build/kiosk-plugin`.
+- `make jnilibs`: only the engine, in `build/jniLibs`, where `app/build.gradle` picks it up: for Gradle or Android Studio outside Docker.
+- `make src`: the patched upstream sources, in `build/src`.
+
+Testing:
+
+- `tests/aaudio/run.sh [serial]` checks the AAudio backend on a rooted device, writing only zeros.
+- The plugin's test runs against a fake Kiosk Satellite host in every build.
+- Without an Apple device, AirConnect's `cliraop -a` (ALAC) plays to classic AirPlay (`-v 0` sets Android's volume to 0 too). pyatv can't drive this build. AirPlay 2 needs an Apple sender.
+
+## How it works
+
+The rule: whatever Android can do, Android does; root only where nothing else works.
+
+- Engine: `ReceiverService` writes `shairport-sync.conf` and binds `EngineService`, which runs Shairport Sync as a JNI library (`libshairport_sync.so`, patch [`0008`](native/patches/README.md)) in a process of its own (`:engine`). Shairport assumes a fresh process, so it runs once per process: stopping asks it to exit, its own cleanup runs (mDNS goodbyes, AAudio closed) and the process ends; the next start waits until it is gone. An engine that dies after 30 s of uptime is restarted (not sooner, so a broken setup can't loop). Only the JNI entry points are exported, so the static OpenSSL and FFmpeg inside can't clash with the app's own libraries. The log goes to logcat, tag `Shairport`.
+- `ReceiverService` is a `connectedDevice` foreground service: Android 15 doesn't let `mediaPlayback` ones start from `BOOT_COMPLETED`. The type doesn't affect audio.
+- Discovery: Shairport's `android` mDNS backend hands its services and TXT records to `NsdManager`, so Android's responder advertises them and follows address changes. NsdManager can't update a TXT record, so an AirPlay 2 group change re-registers the service. The app holds a Wi-Fi `MulticastLock`.
+- Audio: AAudio (patch `0007`) reports the real output delay, which AirPlay 2 timing and multi-room need. It's why Android 8.1 is the minimum.
+- AirPlay 2: NQPTP binds UDP ports 319 and 320, which takes root. With the switch on, `ReceiverService` runs a root watcher through `su`: it forces Wi-Fi high-performance mode and runs NQPTP until the app stops it or dies. NQPTP's shared memory lives in external app storage, which both root and the app can reach. Without NQPTP (su denied), Shairport falls back to classic AirPlay.
+- Device ID: apps can't read the MAC address, so the AirPlay device ID comes from `ANDROID_ID`.
+- Volume: Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream.
+- Wi-Fi: a high-performance Wi-Fi lock keeps the receiver reachable with the screen off up to Android 13 (see [Limitations](#limitations)).
 
 ## Layout
 
-- `Dockerfile`, `Makefile`: the whole build (see [Build](#build)).
-- `app/`: Kotlin app (`MainActivity`, `ReceiverService`, `Engine` and `EngineService` (the `:engine` process), `VolumeSync`, `Prefs`, `SettingsReceiver`, `ModelPreference`).
-- `native/`: engine build steps run by the Dockerfile (`build-deps.sh`, `build-engine.sh`) and the Android patch stack, in order; see [`native/patches/README.md`](native/patches/README.md).
-- `kiosk-plugin/`: the Kiosk Satellite plugin (Java), with its test.
-- `tests/aaudio/`: on-device check of the AAudio backend.
-- `diario.md`: night log of decisions, measurements and dead ends.
+- `app/`: the Kotlin app: `MainActivity` (settings and status), `ReceiverService`, `Engine.kt` (`EngineService`, the `:engine` process), `VolumeSync`, `SettingsReceiver` (the adb interface), `BootReceiver`, `ReceiverTileService`.
+- `native/`: the engine's build scripts, run by the Dockerfile, and its [patches](native/patches/README.md).
+- `kiosk-plugin/`: the Kiosk Satellite plugin (Java) and its test.
+- `tests/aaudio/`: the on-device AAudio check.
+- `Dockerfile`, `Makefile`: the whole build.
 
-The Echo raw-ALSA backend, Echo controls, LED controller, Rust artifacts, installer and TWRP files belong to the device-specific `shairport-echo` project and are intentionally excluded.
+## Made with AI
+
+Most of the code, patches and documentation were written by AI coding agents (Anthropic's Claude and OpenAI's GPT models). The author set the goals, made the design decisions and tested the app on real devices. Review it as you would any unaudited code before relying on it.
+
+## Credits
+
+- [Shairport Sync](https://github.com/mikebrady/shairport-sync) and [NQPTP](https://github.com/mikebrady/nqptp), by Mike Brady and contributors: the AirPlay receiver and its timing service. This app is an Android shell around them.
+- The libraries built into the engine: [OpenSSL](https://www.openssl.org), [FFmpeg](https://ffmpeg.org), [libsodium](https://github.com/jedisct1/libsodium), [libgcrypt and libgpg-error](https://gnupg.org), [libplist](https://github.com/libimobiledevice/libplist), [libconfig](https://github.com/hyperrealm/libconfig), [popt](https://github.com/rpm-software-management/popt) and libuuid from [util-linux](https://github.com/util-linux/util-linux).
+- [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite), by jxlarrea, and its [plugin template](https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world), which provides the plugin SDK and build tool.
+
+Each keeps its own licence; the [Dockerfile](Dockerfile) pins the exact versions.

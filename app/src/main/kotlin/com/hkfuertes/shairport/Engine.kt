@@ -17,7 +17,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Shairport Sync as a JNI library (native/patches/shairport-sync/0003), in the :engine process.
+ * Shairport Sync as a JNI library (native/patches/shairport-sync/0008), in the :engine process.
  * One run per process: Shairport ends the process when it exits, so every start is a fresh one.
  */
 object Engine {
