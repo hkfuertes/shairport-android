@@ -160,7 +160,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             isEnabled = airplay2
             summary = when {
                 !airplay2 -> getString(R.string.model_classic_summary)
-                homePod -> getString(R.string.model_homepod_summary) // "%s" is the chosen model
+                homePod -> getString(R.string.model_homepod_summary)
                 else -> "%s"
             }
         }
