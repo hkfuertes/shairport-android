@@ -34,36 +34,29 @@ class ReceiverService : Service() {
     @Volatile private var engine: Process? = null
     private var engineConfig: String? = null
 
+    /** Wi-Fi IPv4 the running engine started with (null: none, or Wi-Fi was lost since). */
+    @Volatile private var engineAddress: String? = null
+
     /**
-     * TinySVCmDNS advertises the address Shairport started with, so a new Wi-Fi address
-     * (or a reconnect after losing Wi-Fi) needs a fresh engine.
+     * TinySVCmDNS advertises the address Shairport started with, so an engine started without
+     * Wi-Fi (e.g. at boot), a new address, or a reconnect after losing Wi-Fi needs a fresh one.
      */
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
-        private var address: String? = null
-        private var lost = false
-
         override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
             val ipv4 = properties.linkAddresses.firstOrNull { it.address is Inet4Address }
                 ?.address?.hostAddress ?: return
-            if (ipv4 == address) return
-            val firstSeen = address == null && !lost
-            address = ipv4
-            lost = false
-            if (!firstSeen) {
-                Log.i(TAG, "Wi-Fi address is now $ipv4; restarting the engine")
-                // After a reconnect the POCO filters multicast again although the lock is held;
-                // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
-                multicastLock?.run {
-                    release()
-                    acquire()
-                }
-                onWorker { restartEngine() }
+            if (ipv4 == engineAddress) return
+            // After a reconnect the POCO filters multicast again although the lock is held;
+            // re-acquiring it re-applies it (otherwise mDNS queries never arrive).
+            multicastLock?.run {
+                release()
+                acquire()
             }
+            onWorker { restartEngine() }
         }
 
         override fun onLost(network: Network) {
-            address = null
-            lost = true
+            engineAddress = null // the next address, even the same one, needs a fresh engine
         }
     }
 
@@ -113,8 +106,21 @@ class ReceiverService : Service() {
     }
 
     private fun restartEngine() {
+        val address = wifiAddress()
+        if (engine != null && engineAddress != null && engineAddress == address) return
+        Log.i(TAG, "Wi-Fi address is now $address; restarting the engine")
         engineConfig = null
         startEngine()
+    }
+
+    @Suppress("DEPRECATION") // allNetworks: simplest way to read the current Wi-Fi address once
+    private fun wifiAddress(): String? {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        return connectivity.allNetworks.firstNotNullOfOrNull { network ->
+            if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) null
+            else connectivity.getLinkProperties(network)?.linkAddresses
+                ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress
+        }
     }
 
     /** (Re)starts the engine unless it is already running with the same configuration. */
@@ -142,6 +148,7 @@ class ReceiverService : Service() {
             return
         }
 
+        engineAddress = wifiAddress()
         val process = try {
             ProcessBuilder("su", "-c", supervisorScript()).start()
         } catch (error: Exception) {

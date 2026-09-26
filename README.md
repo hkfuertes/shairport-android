@@ -52,7 +52,42 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
   -a com.hkfuertes.shairport.LIST_SETTINGS
 ```
 
-Turning the receiver on over adb only takes effect when the app next starts it (the root prompt must be answered in the app).
+Turning the receiver on over adb only takes effect when the receiver is next started: from the app, or as in [Headless setup](#headless-setup).
+
+## Headless setup
+
+The whole setup works over adb, with no screen interaction, on a Magisk-rooted device whose adb shell already has root (Magisk > Superuser > Shell allowed). Verified on the POCO F1 with Magisk 30.7.
+
+1. Install: `adb install app-debug.apk`.
+2. Grant the app root without Magisk's prompt, by writing Magisk's policy database (`policy` 2 = grant, 1 = deny; `until` 0 = forever; the last two columns are Magisk's log and toast):
+
+   ```sh
+   uid=$(adb shell cmd package list packages -U com.hkfuertes.shairport | sed 's/.*uid://' | tr -d '\r')
+   adb shell su -c "\"magisk --sqlite 'REPLACE INTO policies (uid,policy,until,logging,notification) VALUES($uid,2,0,1,1)'\""
+   ```
+
+   Stick to plain `SELECT`/`REPLACE`/`DELETE` statements: a `PRAGMA` query crashed `magiskd` on Magisk 30.7, and root was gone until the next reboot.
+3. Configure it as in [Configure from ADB](#configure-from-adb).
+4. Start the receiver without opening the app (root may start the non-exported service):
+
+   ```sh
+   adb shell su -c "'am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService'"
+   ```
+
+5. Start it at every boot with a Magisk `service.d` script, which runs as root:
+
+   ```sh
+   cat > shairport.sh <<'SCRIPT'
+   #!/system/bin/sh
+   # Start the Shairport AirPlay receiver at boot (Magisk service.d, runs as root).
+   until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 2; done
+   am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService
+   SCRIPT
+   adb push shairport.sh /data/local/tmp/
+   adb shell su -c "'mkdir -p /data/adb/service.d && cp /data/local/tmp/shairport.sh /data/adb/service.d/ && chmod 755 /data/adb/service.d/shairport.sh'"
+   ```
+
+   Wi-Fi often gets its address after the engine starts at boot. The service restarts the engine as soon as the address it advertises is out of date.
 
 ## Layout
 

@@ -181,3 +181,16 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   outside list choices. The service listens to the preferences and applies changes itself.
   Verified: rename -> engine restarts cleanly, mDNS shows the new name; receiver_enabled
   false stops the service.
+- 11:52 `magisk --sqlite "PRAGMA table_info(policies)"` CRASHED magiskd (Magisk 30.7): root
+  lost ("Cannot connect to daemon"), running engine unaffected; only a reboot restores it.
+  After reboot: headless root grant verified with REPLACE INTO policies (deny -> su exit 13,
+  grant -> uid=0). Use only SELECT/REPLACE/DELETE.
+- Root can start the non-exported service: `su -c am start-foreground-service -n
+  com.hkfuertes.shairport/.ReceiverService` (no activity needed).
+- Boot bug found & fixed: an engine started before Wi-Fi has an address (boot) was never
+  restarted (first address counted as "already seen"). Now the service remembers the
+  address the engine started with and restarts when Wi-Fi's differs or after a loss;
+  restartEngine skips if the engine already serves the current address.
+- Verified with a Magisk service.d script across a reboot: first engine exits (no IP),
+  Wi-Fi arrives 3 s later -> restart -> advertised, TCP :7000 OK. README "Headless setup"
+  commands executed verbatim. Script removed from the POCO afterwards (opt-in via README).

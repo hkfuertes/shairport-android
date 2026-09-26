@@ -20,7 +20,7 @@ The app is `com.hkfuertes.shairport` ("Shairport"; renamed from `com.hkfuertes.s
 - Shairport sync statistics are logged (`diagnostics.statistics`) until AAudio is proven; drop them afterwards.
 - Validate AAudio with real AirPlay 2 realtime and buffered streams, multi-room next to another speaker, track skips (flush closes/reopens the stream), output device changes (Bluetooth), and hour-long sessions.
 - pyatv cannot exercise this build (AP2 uses NTP timing; classic RAOP sends L16, which this build fails to decode). Testing needs an Apple sender.
-- Boot start is not implemented (Android 15 restricts media-playback foreground services from `BOOT_COMPLETED`).
+- Boot start is not built into the app (Android 15 restricts media-playback foreground services from `BOOT_COMPLETED`). The README's headless setup starts the service from a Magisk `service.d` script instead, which was verified across a reboot.
 
 ## Patch decisions
 
