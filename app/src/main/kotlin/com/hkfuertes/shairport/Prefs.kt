@@ -25,7 +25,7 @@ object Prefs {
         RECEIVER_ENABLED to true,
         AIRPLAY_2 to false,
         SERVER_NAME to deviceName(context),
-        MODEL to "AudioAccessory1,1",
+        MODEL to GENERIC_MODEL, // HomePod models can't be added to the Home app
         START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
     )

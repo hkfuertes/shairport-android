@@ -37,6 +37,12 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             checkRoot { (preference as SwitchPreference).isChecked = true }
             false
         }
+        // Started from the tap itself: Android forbids foreground services started from the
+        // background, which a preference listener may be (e.g. adb changes it while we're paused).
+        findPreference(Prefs.RECEIVER_ENABLED).setOnPreferenceChangeListener { _, value ->
+            if (value == true) ReceiverService.start(this) // turning off: the service stops itself
+            true
+        }
         statusCategory = findPreference(PREF_STATUS) as PreferenceCategory
         refreshModel()
 
@@ -109,12 +115,10 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
                 refreshModel()
                 refreshStatus()
             }
-            Prefs.RECEIVER_ENABLED -> {
-                val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
-                // The tile or the notification's "Stop" may change it while this screen is open.
-                (findPreference(Prefs.RECEIVER_ENABLED) as SwitchPreference).isChecked = enabled
-                if (enabled) ReceiverService.start(this) else ReceiverService.stop(this)
-            }
+            Prefs.MODEL -> refreshModel()
+            // The tile, the notification's "Stop" or adb may change it while this screen is open.
+            Prefs.RECEIVER_ENABLED -> (findPreference(Prefs.RECEIVER_ENABLED) as SwitchPreference).isChecked =
+                sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
         }
     }
 
@@ -145,12 +149,20 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
         else if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
     }
 
-    /** Classic AirPlay advertises the generic model (ReceiverService); the choice is AirPlay 2's. */
+    /**
+     * Classic AirPlay advertises the generic model (ReceiverService); the choice is AirPlay 2's.
+     * The Home app's hub removes any accessory whose model is a HomePod, so say so next to it.
+     */
     private fun refreshModel() {
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
+        val homePod = preferences.getString(Prefs.MODEL, null).orEmpty().startsWith("AudioAccessory")
         findPreference(Prefs.MODEL).apply {
             isEnabled = airplay2
-            summary = if (airplay2) "%s" else getString(R.string.model_classic_summary)
+            summary = when {
+                !airplay2 -> getString(R.string.model_classic_summary)
+                homePod -> getString(R.string.model_homepod_summary) // "%s" is the chosen model
+                else -> "%s"
+            }
         }
     }
 

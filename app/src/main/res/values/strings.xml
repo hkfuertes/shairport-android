@@ -37,6 +37,7 @@
     <string name="server_name_summary">Name visible to AirPlay senders.</string>
     <string name="model_title">Advertised model</string>
     <string name="model_classic_summary">Generic: classic AirPlay has no model choice.</string>
+    <string name="model_homepod_summary">%s. Can\'t be added to the Home app, which only takes real HomePods; choose Generic for Home.</string>
     <string name="playback_mode_title">Playback mode</string>
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
     <string name="notification_channel_name">Shairport service</string>

@@ -342,3 +342,20 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   `dumpsys activity services` shows types=0x10 (connectedDevice); reboot -> boot_completed in
   29 s, "Start proc ... for broadcast {...BootReceiver}", engine and NQPTP (root) up 40 s after
   the reboot, mode=airplay2. AirPlay 2 was switched back off afterwards (user's setting).
+
+## 2026-09-26 (evening) — branch feat/home-homepod
+
+- Home app: the POCO (AirPlay 2) never appeared in "Add Accessory" while advertising a HomePod
+  model. mDNS was fine (python-zeroconf with an empty cache found and resolved it over IPv4 and
+  IPv6, TCP 7000 reachable on every address) and the AirPlay picker worked (iPhone "HK15P":
+  transient pair-setup, AirPlay 2 SETUP on the PTP stream, SETPEERS, and the grouping TXT update
+  re-registered through NsdManager). With model Generic (ShairportSync) it appeared and was
+  added: pair-add from the iPhone and from the home hub (Apple TV "Sala de estar"). Switching to
+  HomePod mini afterwards: the hub read /info and pair-removed the home's controller. Apple
+  keeps HomePod models for real HomePods, so Home + HomePod icon is impossible.
+- Decisions: a disclaimer under the model when it's a HomePod, default model Generic.
+- Tools: a temporary `-vv` build (not committed) logs every RTSP request; a detached
+  `adb logcat -v time -s Shairport > /tmp/poco-shairport.log` keeps it while the user tests.
+- Bug fixed on the way: with the settings screen open in the background, turning the receiver on
+  over adb reported "rejected" (the screen's preference listener called
+  startForegroundService from the background); the switch's own tap starts the service now.

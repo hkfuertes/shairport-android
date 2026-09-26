@@ -28,6 +28,7 @@ Guiding rule (user, 2026-09-26): whatever Android can do, Android does; root onl
 - **Android → iPhone volume is deliberately not implemented** (a DACP `dmcp.device-volume` attempt was removed). Receiver-to-sender volume in AirPlay 2 is not in a stable Shairport release (upstream only declares `ap2_event_send_unit_volume_notification()`), and pushing volume from one speaker misbehaves in multi-room sessions. Add it once Shairport ships it stable.
 - Shairport sync statistics are logged (`diagnostics.statistics`) until AAudio is proven; drop them afterwards.
 - pyatv cannot exercise this build (AP2 uses NTP timing; classic RAOP sends L16, which this build fails to decode). `cliraop` from AirConnect (ALAC, `-a`) works for classic AirPlay; AirPlay 2 needs an Apple sender.
+- **Home app:** only a non-HomePod model can be added (Generic, the default). Seen on the POCO with iOS 26: Home's "Add Accessory" never lists a HomePod model, and once added as Generic, switching to HomePod mini made the home hub (Apple TV) read `/info` and `pair-remove` the home's controller. The settings screen says so under the model. Shairport keeps HomeKit pairings (`pair-add`) in memory only: whether Home survives an engine restart is still to check.
 - Upstream ignores `general.port` at the pinned commit (always 7000 for AirPlay 2, 5000 for classic), so the app has no port setting.
 
 ## Patch decisions
