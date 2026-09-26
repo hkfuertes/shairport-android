@@ -127,10 +127,7 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
 1. Reproducir desde el iPhone. Si algo suena raro: Ajustes de la app -> *Audio output* ->
    "App AudioTrack" (el camino que ya funcionó) y comparar.
 2. Volumen iPhone -> Android: mover el slider; el volumen multimedia del POCO debe seguirlo.
-3. Volumen Android -> iPhone: teclas de volumen del POCO durante la reproducción. Mirar
-   `adb logcat -s ShairportAP2 | grep DACP`: "DACP iTunes_Ctrl_... -> /ip:port" y
-   "DACP device-volume ... -> HTTP/1.1 2xx" = funciona; "-> null" = el iPhone no anuncia
-   DACP en AirPlay 2 (entonces habría que ir al canal de eventos AP2/MRP).
+3. (Eliminado a petición: el teléfono NO manda su volumen al iPhone; ver entrada 05:30.)
 4. Sincronía: las líneas de estadísticas de Shairport salen en el mismo logcat.
 5. Pantalla apagada: debería seguir visible y conectable (hi-perf Wi-Fi forzado).
 - 05:00 **Shairport never exited on SIGTERM**, even idle (every stop needed the 3 s
@@ -148,3 +145,7 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   app AudioTrack (44.1k, USAGE_MEDIA) created; switched back to aaudio (default).
   AP2 session-teardown paths already have cancellation points (player loop, buffered
   reader, AP2 receivers); aaudio play() blocks at most 1 s before the player sees it.
+- 05:30 User decision: sender -> Android volume stays; Android -> sender (DACP) removed
+  entirely, no toggle. Receiver-to-sender volume isn't in a stable Shairport release (dev
+  only) and misbehaves in multi-room. Re-add when upstream stable has it. VolumeSync is
+  now just the `pvol` listener.
