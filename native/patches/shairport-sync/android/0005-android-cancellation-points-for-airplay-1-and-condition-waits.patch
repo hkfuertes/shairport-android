@@ -130,3 +130,13 @@
  
  void *rtp_ap2_control_receiver(void *arg) {
    const int32_t ap2_realttime_stream_latency_fudge_factor = 11025; // seems to bring everything into sync
+--- a/player.c
++++ b/player.c
+@@ -2759,6 +2759,7 @@
+         // if (rc)
+         debug(3, "pthread_cond_timedwait returned error code %d.", rc);
+       // debug(1, "waited");
++      pthread_testcancel(); // not on Bionic: a stopped session would wait here for good
+ #endif
+ #ifdef COMPILE_FOR_OSX
+       uint64_t sec = time_to_wait_for_wakeup_ns / 1000000000;
