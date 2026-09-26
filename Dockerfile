@@ -54,11 +54,11 @@ get shairport-sync 7bad231c18368dbd26f298577f6210e36e4b0797 eab1fa095e34676d05f6
 get nqptp c925f27c1fd12e4033ac477e5a405969b0b0260b d2c2fe5d2574d447a817b1585e82c38f4c98774dac8284e5a3f17e188a3a75f9
 EOF
 COPY native/patches /patches
-# Order: shairport-sync/android/* (Bionic) before shairport-sync/*; see native/patches/README.md.
-RUN for p in /patches/shairport-sync/android/*.patch /patches/shairport-sync/*.patch; do \
-      patch -d /src/shairport-sync -p1 < "$p" || exit 1; done \
-    && for p in /patches/nqptp/*.patch; do patch -d /src/nqptp -p1 < "$p" || exit 1; done \
-    && (cd /src/shairport-sync && autoreconf -fi) && (cd /src/nqptp && autoreconf -fi)
+# Each project's patches in file-name order; see native/patches/README.md.
+RUN for d in shairport-sync nqptp; do \
+      for p in /patches/$d/*.patch; do patch -d /src/$d -p1 < "$p" || exit 1; done; \
+      (cd /src/$d && autoreconf -fi) || exit 1; \
+    done
 
 # make src: the patched sources in build/src, to read or diff against.
 FROM scratch AS src
