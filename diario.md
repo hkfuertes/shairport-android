@@ -242,3 +242,8 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   end, after Permissions (root access, moved last). Category headers are never disabled now.
 - Verified on screen: all Running/Advertising/Idle; simulated snam+pbeg -> "Playing from
   HK15P"; toggle off -> Stopped/Not advertising and no processes; toggle on -> Running.
+- PLAN (user approved all but "Android NSD for mDNS"), branch feat/status-and-toggle:
+  1) remove "Audio output" pref (auto: AAudio on API 26+, AudioTrack on 25);
+  2) "Start at boot" pref -> su installs/removes /data/adb/service.d/shairport.sh (README script);
+  3) Quick Settings tile toggling the receiver; 4) "Stop" action in the notification;
+  5) "Playback mode" -> Advanced. Sync-stats logging stays until a long AAudio session is judged.
