@@ -14,7 +14,7 @@ object Prefs {
     const val MODEL = "model"
     const val NETWORK_INTERFACE = "network_interface"
     const val PORT = "port"
-    const val AUDIO_OUTPUT = "audio_output"
+    const val START_AT_BOOT = "start_at_boot"
     const val PLAYBACK_MODE = "playback_mode"
 
     /** Typed as the settings screen stores them (EditTextPreference keeps Strings). */
@@ -24,21 +24,19 @@ object Prefs {
         MODEL to "AudioAccessory1,1",
         NETWORK_INTERFACE to "wlan0",
         PORT to "7000",
-        AUDIO_OUTPUT to "aaudio",
+        START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
     )
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */
     fun choices(context: Context): Map<String, List<String>> = mapOf(
         MODEL to context.resources.getStringArray(R.array.model_values).toList(),
-        AUDIO_OUTPUT to context.resources.getStringArray(R.array.audio_output_values).toList(),
         PLAYBACK_MODE to context.resources.getStringArray(R.array.playback_mode_values).toList(),
     )
 
     /** Human names of [choices], in the same order (what the settings screen shows). */
     fun labels(context: Context): Map<String, List<String>> = mapOf(
         MODEL to context.resources.getStringArray(R.array.model_entries).toList(),
-        AUDIO_OUTPUT to context.resources.getStringArray(R.array.audio_output_entries).toList(),
         PLAYBACK_MODE to context.resources.getStringArray(R.array.playback_mode_entries).toList(),
     )
 

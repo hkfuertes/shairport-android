@@ -9,6 +9,9 @@
     <string name="receiver_category">Receiver</string>
     <string name="receiver_enabled_title">AirPlay receiver</string>
     <string name="receiver_enabled_summary">Starts and stops NQPTP, Shairport Sync and its mDNS advertisement.</string>
+    <string name="start_at_boot_title">Start at boot</string>
+    <string name="start_at_boot_summary">Starts the receiver after every reboot, through a Magisk boot script.</string>
+    <string name="notification_stop">Stop</string>
     <string name="status_category">Status</string>
     <string name="status_shairport_title">Shairport Sync (AirPlay 2)</string>
     <string name="status_nqptp_title">NQPTP (AirPlay 2 timing)</string>
@@ -31,8 +34,6 @@
     <string name="port_summary">Between 1 and 65535.</string>
     <string name="playback_mode_title">Playback mode</string>
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
-    <string name="audio_output_title">Audio output</string>
-    <string name="audio_output_summary">AAudio keeps AirPlay 2 timing (multi-room); AudioTrack is the Android 7 fallback.</string>
     <string name="show_advanced">Show advanced settings</string>
     <string name="hide_advanced">Hide advanced settings</string>
     <string name="advanced_category">Advanced</string>

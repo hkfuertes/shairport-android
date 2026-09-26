@@ -8,6 +8,10 @@
             android:key="receiver_enabled"
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
+        <SwitchPreference
+            android:key="start_at_boot"
+            android:summary="@string/start_at_boot_summary"
+            android:title="@string/start_at_boot_title" />
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -23,12 +27,6 @@
             android:key="model"
             android:summary="%s"
             android:title="@string/model_title" />
-        <ListPreference
-            android:entries="@array/playback_mode_entries"
-            android:entryValues="@array/playback_mode_values"
-            android:key="playback_mode"
-            android:summary="@string/playback_mode_summary"
-            android:title="@string/playback_mode_title" />
         <Preference
             android:key="show_advanced"
             android:persistent="false"
@@ -50,11 +48,11 @@
             android:summary="@string/port_summary"
             android:title="@string/port_title" />
         <ListPreference
-            android:entries="@array/audio_output_entries"
-            android:entryValues="@array/audio_output_values"
-            android:key="audio_output"
-            android:summary="@string/audio_output_summary"
-            android:title="@string/audio_output_title" />
+            android:entries="@array/playback_mode_entries"
+            android:entryValues="@array/playback_mode_values"
+            android:key="playback_mode"
+            android:summary="@string/playback_mode_summary"
+            android:title="@string/playback_mode_title" />
     </PreferenceCategory>
 
     <PreferenceCategory

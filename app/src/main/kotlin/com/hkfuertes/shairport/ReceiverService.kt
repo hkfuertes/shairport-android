@@ -79,6 +79,11 @@ class ReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) { // the notification's "Stop"
+            Prefs.get(this).edit().putBoolean(Prefs.RECEIVER_ENABLED, false).commit()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_starting)))
         onWorker { startEngine() }
         return START_STICKY
@@ -127,7 +132,7 @@ class ReceiverService : Service() {
     private fun startEngine() {
         val preferences = Prefs.get(this)
         val name = value(preferences, Prefs.SERVER_NAME)
-        val aaudio = AAUDIO_AVAILABLE && value(preferences, Prefs.AUDIO_OUTPUT) == "aaudio"
+        val aaudio = AAUDIO_AVAILABLE // AudioTrack pipe only where AAudio doesn't exist (Android 7)
         val config = config(preferences, name, aaudio)
         if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
@@ -405,7 +410,20 @@ class ReceiverService : Service() {
         } else {
             Notification.Builder(this)
         }
+        val stop = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, ReceiverService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return builder
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_airplay_audio),
+                    getString(R.string.notification_stop),
+                    stop,
+                ).build(),
+            )
             .setSmallIcon(R.drawable.ic_airplay_audio) // alpha-only glyph, as status icons need
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -419,6 +437,7 @@ class ReceiverService : Service() {
     companion object {
         private const val TAG = "Shairport"
         private const val STATUS_MARKER = "@status "
+        private const val ACTION_STOP = "com.hkfuertes.shairport.STOP"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
         private const val PER_USER_RANGE = 100000

@@ -97,8 +97,15 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == Prefs.START_AT_BOOT) {
+            Thread({ BootScript.sync(this) }, "boot-script").start()
+            return
+        }
         if (key != Prefs.RECEIVER_ENABLED) return
-        if (rootGranted && sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) {
+        val enabled = sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
+        // The tile or the notification's "Stop" may change it while this screen is open.
+        (findPreference(Prefs.RECEIVER_ENABLED) as android.preference.SwitchPreference).isChecked = enabled
+        if (rootGranted && enabled) {
             ReceiverService.start(this)
         } else {
             ReceiverService.stop(this)

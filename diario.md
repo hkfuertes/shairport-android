@@ -247,3 +247,9 @@ Instalado en el POCO: receptor "Shairport AP2 Android", backend **AAudio** por d
   2) "Start at boot" pref -> su installs/removes /data/adb/service.d/shairport.sh (README script);
   3) Quick Settings tile toggling the receiver; 4) "Stop" action in the notification;
   5) "Playback mode" -> Advanced. Sync-stats logging stays until a long AAudio session is judged.
+- DONE: Audio output pref removed (AAudio on API 26+, AudioTrack pipe only on 25; adb
+  "audio_output" now unknown). Playback mode -> Advanced. "Start at boot" (BootScript: su writes
+  / removes /data/adb/service.d/shairport.sh; also from adb) verified install+remove. Notification
+  "Stop" action verified (pref off, engine gone). Quick Settings tile verified off/on with
+  `cmd statusbar click-tile` (only works with the panel expanded; FGS start from the tile is
+  allowed: "Background started FGS: Allowed"); tile removed again from the user's QS panel.
