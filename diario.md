@@ -102,3 +102,19 @@ Found:
   sends L16 which this build fails to decode (AVERROR_INVALIDDATA). Needs an Apple sender.
 - A pyatv session that never tears down makes SIGTERM hang Shairport (seen twice): the
   watcher's SIGKILL covers the app engine; manual test instances need kill -9.
+- 04:10 "Audio output" preference (AAudio default on 8+, AudioTrack pipe fallback) so the
+  user can A/B in the morning. Docs rewritten (README/HANDOFF); obsolete config example
+  removed. DACP volume sends are coalesced (holding a key queued 5 s resolves each).
+- owntones (AP2 sender) only understands `sendMediaRemoteCommand` play/paus/nitm/pitm
+  from speakers over the event channel; no volume. Upstream Shairport has no AP2 volume
+  notification. => Android->iPhone volume stays DACP, UNVERIFIED (open item in HANDOFF).
+- 04:20 Reproducibility: `git archive HEAD` + `make fetch patch` in /tmp/fresh gives a
+  source tree identical to the one built here (only generated files differ). Full
+  from-scratch Docker build started in /tmp/fresh (log /tmp/fresh-build.log).
+- Security note: metadata UDP on loopback is unauthenticated, but a local app could only
+  set the music volume (any app can) or trigger a fixed-format DACP GET (any app with
+  INTERNET can do more). Accepted.
+- Shairport answers GET_PARAMETER volume / /info initialVolume with its last AirPlay
+  volume; possible future route for Android->iPhone sync if DACP fails in AP2.
+- 04:45 From-scratch build in a clean clone (/tmp/fresh): arm64 deps ~16 min, then both
+  Shairport ABIs, both NQPTP ABIs and the APK: BUILD SUCCESSFUL. Pipeline reproducible.
