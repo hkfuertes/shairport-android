@@ -6,7 +6,7 @@
   "apiVersion": 1,
   "minAndroidSdk": 27,
   "entryClass": "com.hkfuertes.shairport.kiosk.ShairportPlugin",
-  "description": "Manages the Shairport AirPlay 2 receiver app (com.hkfuertes.shairport) on this kiosk: its settings from Kiosk Satellite, its state and current track as Home Assistant entities. It does not run the receiver itself. Requires the Shairport app and Shizuku access for Kiosk Satellite.",
+  "description": "Manages the Shairport AirPlay receiver app (com.hkfuertes.shairport) on this kiosk: its settings from Kiosk Satellite, its state and current track as Home Assistant entities. It does not run the receiver itself. Requires the Shairport app and Shizuku access for Kiosk Satellite.",
   "author": "hkfuertes",
   "license": "Apache-2.0",
   "capabilities": ["entities", "shizuku"],
