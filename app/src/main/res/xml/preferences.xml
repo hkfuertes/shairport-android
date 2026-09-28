@@ -36,6 +36,10 @@
             android:key="playback_mode"
             android:summary="@string/playback_mode_summary"
             android:title="@string/playback_mode_title" />
+        <SwitchPreference
+            android:key="link_stream_volume"
+            android:summary="@string/link_stream_volume_summary"
+            android:title="@string/link_stream_volume_title" />
     </PreferenceCategory>
 
     <PreferenceCategory

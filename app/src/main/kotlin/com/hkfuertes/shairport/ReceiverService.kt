@@ -284,7 +284,7 @@ class ReceiverService : Service() {
           output_backend = "aaudio";
           service_type = ${if (airplay2) "\"auto\"" else "\"classic\""}; // auto: classic without NQPTP
           airplay_device_id = ${Prefs.deviceId(this)}; // the app has no MAC address to use
-          ignore_volume_control = "yes"; // VolumeSync maps it onto STREAM_MUSIC instead
+          ignore_volume_control = ${quote(if (preferences.getBoolean(Prefs.LINK_STREAM_VOLUME, true)) "yes" else "no")}; // linked: VolumeSync maps it onto STREAM_MUSIC
         };
         metadata = {
           enabled = "yes";

@@ -12,9 +12,8 @@ Install `app-release.apk` (see [Build](#build)) and open Shairport:
 - **AirPlay 2 (multi-room)** asks Magisk for root to run NQPTP. Without root the receiver stays classic AirPlay.
 - **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
 - **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
+- **Link Android music volume** defaults on: AirPlay changes Android's music volume. Turn it off to keep that volume fixed and apply AirPlay volume only to this receiver.
 - **Status** shows each part: Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback.
-
-The sender's volume slider sets Android's music volume.
 
 ## Configure from ADB
 
@@ -31,7 +30,7 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key model --es value "'HomePod mini'"
 
-# boolean
+# boolean; set link_stream_volume false the same way to leave Android's music volume alone
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key receiver_enabled --ez value false
 
@@ -83,7 +82,7 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 
 [`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and the app keeps running the receiver. The plugin drives the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
-- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Start at boot. They show the app's current values, including changes made in the app itself, and the status line says whether the receiver runs as AirPlay 2 or classic AirPlay.
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Link Android music volume, Start at boot. They show the app's current values, including changes made in the app itself, and the status line says whether the receiver runs as AirPlay 2 or classic AirPlay.
 - Home Assistant (ESPHome with native entities enabled in Kiosk Satellite): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
 Install it with **Developer Tools > Install from ZIP**, using `shairport-*.zip` from a release or from `build/kiosk-plugin/`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
@@ -107,7 +106,7 @@ media_player:
 
 ## Limitations
 
-- Volume goes one way, sender to Android, and Android can't pause or skip. Both would need DACP back to the sender: receiver-to-sender volume isn't in a stable Shairport Sync release yet, and one speaker pushing its volume misbehaves in multi-room groups.
+- With **Link Android music volume** on, volume goes one way, sender to Android. Android can't change the sender's volume, pause or skip: receiver-to-sender volume isn't in a stable Shairport Sync release yet, and one speaker pushing its volume misbehaves in multi-room groups.
 - Home app: only the Generic model can be added. Home never offers a HomePod model, and the home hub removes an accessory that switches to one. Shairport keeps HomeKit pairings in memory only; whether Home survives an engine restart is still unchecked.
 - Screen off: from Android 14 an app's Wi-Fi lock only works with the screen on. With AirPlay 2, the root watcher forces Wi-Fi high-performance mode instead; without root the device may stop answering (the POCO does).
 - Ports are fixed: 7000 for AirPlay 2, 5000 for classic AirPlay (upstream ignores `general.port`).
@@ -147,7 +146,7 @@ The rule: whatever Android can do, Android does; root only where nothing else wo
 - Audio: AAudio (patch `0007`) reports the real output delay, which AirPlay 2 timing and multi-room need. It's why Android 8.1 is the minimum.
 - AirPlay 2: NQPTP binds UDP ports 319 and 320, which takes root. With the switch on, `ReceiverService` runs a root watcher through `su`: it forces Wi-Fi high-performance mode and runs NQPTP until the app stops it or dies. NQPTP's shared memory lives in external app storage, which both root and the app can reach. Without NQPTP (su denied), Shairport falls back to classic AirPlay.
 - Device ID: apps can't read the MAC address, so the AirPlay device ID comes from `ANDROID_ID`.
-- Volume: Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream.
+- Volume: with Link Android music volume on, Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With it off, Shairport applies AirPlay volume itself.
 - Wi-Fi: a high-performance Wi-Fi lock keeps the receiver reachable with the screen off up to Android 13 (see [Limitations](#limitations)).
 
 ## Layout

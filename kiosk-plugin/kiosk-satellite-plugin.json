@@ -16,6 +16,7 @@
     {"key": "server_name", "type": "string", "title": "Name", "default": "", "description": "Name shown in the AirPlay list. Empty: the Android device name."},
     {"key": "model", "type": "select", "title": "Model", "default": "Generic", "options": ["Generic", "HomePod", "HomePod mini"], "description": "Advertised model: the icon senders show. AirPlay 2 only; classic AirPlay is Generic. HomePod models can't be added to the Home app."},
     {"key": "playback_mode", "type": "select", "title": "Playback mode", "default": "Stereo", "options": ["Stereo", "Mono"]},
+    {"key": "link_stream_volume", "type": "boolean", "title": "Link Android music volume", "default": true, "description": "When on, AirPlay volume also changes Android's music volume. When off, it changes only this receiver."},
     {"key": "start_at_boot", "type": "boolean", "title": "Start at boot", "default": false, "description": "Starts the receiver after every reboot."}
   ],
   "commands": []

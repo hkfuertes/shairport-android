@@ -16,6 +16,8 @@ object Prefs {
     const val MODEL = "model"
     const val START_AT_BOOT = "start_at_boot"
     const val PLAYBACK_MODE = "playback_mode"
+    /** When false, AirPlay volume stays inside Shairport and leaves Android's music stream alone. */
+    const val LINK_STREAM_VOLUME = "link_stream_volume"
 
     /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
     const val GENERIC_MODEL = "ShairportSync"
@@ -28,6 +30,7 @@ object Prefs {
         MODEL to GENERIC_MODEL, // HomePod models can't be added to the Home app
         START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
+        LINK_STREAM_VOLUME to true,
     )
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */

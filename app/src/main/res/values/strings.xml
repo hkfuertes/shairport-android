@@ -40,6 +40,8 @@
     <string name="model_homepod_summary">HomePods can\'t be added to the Home app, which only takes real HomePods; choose Generic for Home.</string>
     <string name="playback_mode_title">Playback mode</string>
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
+    <string name="link_stream_volume_title">Link Android music volume</string>
+    <string name="link_stream_volume_summary">When on, AirPlay volume also changes Android\'s music volume. When off, it changes only this receiver.</string>
     <string name="notification_channel_name">Shairport service</string>
     <string name="notification_starting">Starting AirPlay receiver…</string>
     <string name="notification_active">AirPlay receiver "%1$s" is active.</string>
