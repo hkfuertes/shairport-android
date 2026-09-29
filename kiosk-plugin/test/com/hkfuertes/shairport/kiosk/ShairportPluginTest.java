@@ -15,7 +15,7 @@ public final class ShairportPluginTest {
     static final String STATUS_OK = "Broadcasting: Intent { act=com.hkfuertes.shairport.GET_STATUS }\n"
         + "Broadcast completed: result=-1, data=\"state=playing&volume=40&source=iPhone%20de%20Ana&title=Song&artist=A%26B"
         + "&address=192.168.1.5&mode=airplay2&receiver_enabled=true&airplay_2=true&server_name=Kitchen"
-        + "&model=AudioAccessory5%2C1&start_at_boot=false&playback_mode=stereo\"\n";
+        + "&model=AudioAccessory5%2C1&start_at_boot=false&playback_mode=stereo&link_stream_volume=true\"\n";
 
     static final class Host implements PluginHost {
         boolean granted = true;
@@ -62,6 +62,7 @@ public final class ShairportPluginTest {
         settings.put("model", model);
         settings.put("playback_mode", "Stereo");
         settings.put("start_at_boot", false);
+        settings.put("link_stream_volume", true);
         return settings;
     }
 
@@ -104,22 +105,25 @@ public final class ShairportPluginTest {
         Host host = new Host();
         ShairportPlugin plugin = new ShairportPlugin();
         plugin.attach(host, form(false, "Kitchen", "HomePod"));
-        plugin.configure(form(true, "Salón de \"casa\"", "HomePod"));
+        Map<String, Object> next = form(true, "Salón de \"casa\"", "HomePod");
+        next.put("link_stream_volume", false);
+        plugin.configure(next);
         assert host.commands.size() == 1 && host.last().equals("/system/bin/am broadcast --include-stopped-packages"
             + " -n com.hkfuertes.shairport/.SettingsReceiver --es key receiver_enabled --ez value true"
             + " -a com.hkfuertes.shairport.CONFIGURE_SETTINGS") : host.last();
         List<String> sent = new ArrayList<>();
         while (!host.pending.isEmpty()) {
             sent.add(host.last());
-            host.answer(host.last().contains("GET_STATUS") ? STATUS_OK
+            host.answer(host.last().contains("GET_STATUS") ? STATUS_OK.replace("link_stream_volume=true", "link_stream_volume=false")
                 : host.last().contains("start-foreground-service") ? "Starting service: Intent { }"
                 : "Broadcast completed: result=-1, data=\"server_name\"");
         }
-        assert sent.size() == 4 : sent;
+        assert sent.size() == 5 : sent;
         assert sent.get(0).contains("--es key receiver_enabled --ez value true") : sent;
         assert sent.get(1).contains("--es key server_name --es value Salón de \"casa\"") : sent;
-        assert sent.get(2).equals("/system/bin/am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService") : sent;
-        assert sent.get(3).endsWith("GET_STATUS") : sent;
+        assert sent.get(2).contains("--es key link_stream_volume --ez value false") : sent;
+        assert sent.get(3).equals("/system/bin/am start-foreground-service -n com.hkfuertes.shairport/.ReceiverService") : sent;
+        assert sent.get(4).endsWith("GET_STATUS") : sent;
         // Same form again (KS re-submits on every save): nothing to send.
         int before = host.commands.size();
         plugin.configure(host.saved);
