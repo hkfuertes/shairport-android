@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shairport",
   "name": "Shairport",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "apiVersion": 1,
   "minAndroidSdk": 27,
   "entryClass": "com.hkfuertes.shairport.kiosk.ShairportPlugin",
