@@ -10,7 +10,7 @@ import java.net.InetAddress
 import kotlin.math.roundToInt
 
 /**
- * Shairport's metadata over loopback UDP ([port]). When [Prefs.LINK_STREAM_VOLUME] is on,
+ * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume] (link on, no satellites),
  * Shairport ignores volume control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC. Play state (`snam`,
  * `pbeg`, `pend`, `disc`) and the track (`core` `minm`, `asar`, `asal`) go to [EngineStatus].
  *
@@ -58,7 +58,7 @@ class VolumeSync(context: Context) {
     }
 
     private fun applySenderVolume(airplayVolume: Double) {
-        if (!preferences.getBoolean(Prefs.LINK_STREAM_VOLUME, true)) return
+        if (!Prefs.linkedVolume(preferences)) return
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val index = toIndex(airplayVolume, max)
         if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) != index) {

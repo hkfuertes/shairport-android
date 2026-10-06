@@ -40,6 +40,7 @@ class ReceiverService : Service() {
     private lateinit var volumeSync: VolumeSync
     @Volatile private var engine: ServiceConnection? = null
     private var engineConfig: String? = null
+    private var engineSatellites = false
     /** Root watcher running NQPTP; closing its stdin stops it. */
     private var nqptp: Process? = null
     /** Worker tasks queued before onDestroy must not start an engine afterwards. */
@@ -126,7 +127,8 @@ class ReceiverService : Service() {
         val name = value(preferences, Prefs.SERVER_NAME)
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
         val config = config(preferences, name, airplay2)
-        if (engine != null && config == engineConfig) {
+        val satellites = preferences.getBoolean(Prefs.SATELLITES, false)
+        if (engine != null && config == engineConfig && satellites == engineSatellites) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
@@ -154,6 +156,7 @@ class ReceiverService : Service() {
             .putExtra(EngineService.EXTRA_ARGUMENTS, arrayOf("shairport-sync", "-c", configFile.path))
             .putExtra(EngineService.EXTRA_SHM_DIRECTORY, shm?.path.orEmpty())
             .putExtra(EngineService.EXTRA_STATUS, engineMessages)
+            .putExtra(EngineService.EXTRA_SATELLITES, satellites)
         if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
             Log.e(TAG, "Could not start the engine process")
             notifyForeground(getString(R.string.notification_engine_error))
@@ -161,6 +164,7 @@ class ReceiverService : Service() {
         }
         engine = connection
         engineConfig = config
+        engineSatellites = satellites
         notifyForeground(getString(R.string.notification_active, name))
     }
 
@@ -284,7 +288,7 @@ class ReceiverService : Service() {
           output_backend = "aaudio";
           service_type = ${if (airplay2) "\"auto\"" else "\"classic\""}; // auto: classic without NQPTP
           airplay_device_id = ${Prefs.deviceId(this)}; // the app has no MAC address to use
-          ignore_volume_control = ${quote(if (preferences.getBoolean(Prefs.LINK_STREAM_VOLUME, true)) "yes" else "no")}; // linked: VolumeSync maps it onto STREAM_MUSIC
+          ignore_volume_control = ${quote(if (Prefs.linkedVolume(preferences)) "yes" else "no")}; // linked: VolumeSync maps it onto STREAM_MUSIC
         };
         metadata = {
           enabled = "yes";

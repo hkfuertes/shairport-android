@@ -31,6 +31,27 @@ object Engine {
     /** Asks Shairport to exit cleanly (mDNS goodbyes, AAudio closed), which ends the process. */
     @JvmStatic external fun stop()
 
+    /** Patch 0009: hand every buffer AAudio plays to [satelliteAudio]. */
+    @JvmStatic private external fun relayAudio(on: Boolean)
+
+    @Volatile private var satellites: Satellites? = null
+
+    /** Snapcast server for satellites, for the rest of this process (one engine run). */
+    fun startSatellites() {
+        satellites = runCatching { Satellites(log = { Log.i(TAG, it) }) }
+            .onFailure { Log.e(TAG, "Satellites: could not listen on ${Satellites.PORT}", it) }
+            .getOrNull() ?: return
+        relayAudio(true)
+        // Snapdroid only takes a server whose name starts with "Snapcast".
+        mdnsPublish("_snapcast._tcp", "Snapcast".toByteArray(), Satellites.PORT, emptyArray())
+    }
+
+    /** Patch 0009, on Shairport's player thread: see [Satellites.audio]. */
+    @JvmStatic
+    fun satelliteAudio(pcm: ByteArray, rate: Int, heardAt: Long) {
+        satellites?.audio(pcm, rate, heardAt)
+    }
+
     internal lateinit var nsd: NsdManager
     internal var status: Messenger? = null
     /** Written by Shairport's threads (synchronized), read by NsdManager's callbacks. */
@@ -119,6 +140,7 @@ class EngineService : Service() {
         Engine.nsd = getSystemService(NsdManager::class.java)
         Engine.status = messenger(intent)
         Os.setenv("NQPTP_SHM_DIRECTORY", intent.getStringExtra(EXTRA_SHM_DIRECTORY).orEmpty(), true)
+        if (intent.getBooleanExtra(EXTRA_SATELLITES, false)) Engine.startSatellites()
         val arguments = requireNotNull(intent.getStringArrayExtra(EXTRA_ARGUMENTS))
         Thread({ Engine.run(arguments) }, "shairport").start()
         return Binder()
@@ -141,6 +163,7 @@ class EngineService : Service() {
         const val EXTRA_ARGUMENTS = "arguments"
         const val EXTRA_SHM_DIRECTORY = "shm_directory"
         const val EXTRA_STATUS = "status"
+        const val EXTRA_SATELLITES = "satellites"
         /** arg1: advertised at all; arg2: as AirPlay 2 (`_airplay._tcp`). */
         const val MSG_ADVERTISED = 1
         private const val TAG = "Shairport"

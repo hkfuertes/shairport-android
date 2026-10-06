@@ -13,6 +13,7 @@ Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairpor
 - **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
 - **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
 - **Link Android music volume** defaults on: AirPlay changes Android's music volume. Turn it off to keep that volume fixed and apply AirPlay volume only to this receiver.
+- **Satellites (Snapcast)**: Snapcast clients play along, in sync (see [Satellites](#satellites-snapcast)).
 - **Status** shows each part: Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback.
 
 ## Configure from ADB
@@ -104,6 +105,16 @@ media_player:
       turn_off: {action: switch.turn_off, target: {entity_id: switch.kiosk_shairport_airplay_receiver}}
 ```
 
+## Satellites (Snapcast)
+
+With **Satellites (Snapcast)** on (adb: `--es key satellites --ez value true`), the receiver is also a minimal [Snapcast](https://github.com/badaix/snapcast) server: Snapcast clients play what it plays, in sync with it and with the rest of an AirPlay 2 group. For the sender they are part of this speaker: one volume, grouped together.
+
+- Clients: `snapclient` on Linux, an [ESP32](https://github.com/CarlosDerSeher/snapclient), [Snapdroid](https://github.com/badaix/snapdroid) on Android. They find the server over mDNS (`_snapcast._tcp`, named `Snapcast`) or at the device's address, port 1704.
+- Each buffer goes out with the time Shairport plays it, on the sender's timeline (AirPlay 2's PTP clock included), as 20 ms chunks of 16-bit PCM: about 1.4 Mbit/s per client. Clients play it at that time, so they follow the AirPlay timeline, not this device's speaker.
+- AirPlay volume goes into the audio itself, as with Link Android music volume off (the switch turns the link off). Each satellite's own level is set on the satellite.
+- Port 1705 accepts connections and answers nothing: Snapdroid only offers Play while connected there, so its group list stays empty.
+- Satellites get the audio about 0.4 s ahead (the AAudio buffer). A client cut off for longer goes silent and comes back in sync. On pause or skip they play out what they already have, up to that 0.4 s, as Snapcast clients do with any server.
+
 ## Limitations
 
 - Control goes one way, sender to receiver: Android can't change the sender's volume, pause or skip. Receiver-to-sender volume isn't in a stable Shairport Sync release yet, and one speaker pushing its volume misbehaves in multi-room groups.
@@ -134,6 +145,7 @@ Testing:
 
 - `tests/aaudio/run.sh [serial]` checks the AAudio backend on a rooted device, writing only zeros.
 - The plugin's test runs against a fake Kiosk Satellite host in every build.
+- `SatellitesTest` runs the Snapcast server against a fake snapclient in every build.
 - Without an Apple device, AirConnect's `cliraop -a` (ALAC) plays to classic AirPlay (with Link Android music volume on, `-v 0` sets Android's volume to 0 too). pyatv can't drive this build. AirPlay 2 needs an Apple sender.
 
 ## How it works
@@ -146,12 +158,13 @@ The rule: whatever Android can do, Android does; root only where nothing else wo
 - Audio: AAudio (patch `0007`) reports the real output delay, which AirPlay 2 timing and multi-room need. It's why Android 8.1 is the minimum.
 - AirPlay 2: NQPTP binds UDP ports 319 and 320, which takes root. With the switch on, `ReceiverService` runs a root watcher through `su`: it forces Wi-Fi high-performance mode and runs NQPTP until the app stops it or dies. NQPTP's shared memory lives in external app storage, which both root and the app can reach. Without NQPTP (su denied), Shairport falls back to classic AirPlay.
 - Device ID: apps can't read the MAC address, so the AirPlay device ID comes from `ANDROID_ID`.
-- Volume: with Link Android music volume on, Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With it off, Shairport applies AirPlay volume itself.
+- Satellites: patch `0009` hands every buffer the AAudio backend plays, with the time Shairport says it is heard, to `Satellites.kt` in the `:engine` process, the Snapcast server.
+- Volume: with Link Android music volume on (and no satellites), Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With it off, Shairport applies AirPlay volume itself.
 - Wi-Fi: a high-performance Wi-Fi lock keeps the receiver reachable with the screen off up to Android 13 (see [Limitations](#limitations)).
 
 ## Layout
 
-- `app/`: the Kotlin app: `MainActivity` (settings and status), `ReceiverService`, `Engine.kt` (`EngineService`, the `:engine` process), `VolumeSync`, `SettingsReceiver` (the adb interface), `BootReceiver`, `ReceiverTileService`.
+- `app/`: the Kotlin app: `MainActivity` (settings and status), `ReceiverService`, `Engine.kt` (`EngineService`, the `:engine` process), `Satellites` (the Snapcast server), `VolumeSync`, `SettingsReceiver` (the adb interface), `BootReceiver`, `ReceiverTileService`.
 - `native/`: the engine's build scripts, run by the Dockerfile, and its [patches](native/patches/README.md).
 - `kiosk-plugin/`: the Kiosk Satellite plugin (Java) and its test.
 - `tests/aaudio/`: the on-device AAudio check.

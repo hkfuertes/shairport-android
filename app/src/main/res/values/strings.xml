@@ -42,6 +42,8 @@
     <string name="playback_mode_summary">Channel mapping applied by Shairport Sync.</string>
     <string name="link_stream_volume_title">Link Android music volume</string>
     <string name="link_stream_volume_summary">When on, AirPlay volume also changes Android\'s music volume. When off, it changes only this receiver.</string>
+    <string name="satellites_title">Satellites (Snapcast)</string>
+    <string name="satellites_summary">Snapcast clients (snapclient on Linux, ESP32, Snapdroid) play what this receiver plays, in sync, on ports 1704 and 1705. AirPlay volume then applies to the audio itself, for every speaker.</string>
     <string name="notification_channel_name">Shairport service</string>
     <string name="notification_starting">Starting AirPlay receiver…</string>
     <string name="notification_active">AirPlay receiver "%1$s" is active.</string>

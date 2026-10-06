@@ -107,7 +107,7 @@ COPY --from=engine /out build/jniLibs
 # adb install -r) stays stable.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
-    ./gradlew --no-daemon --console=plain :app:assembleRelease
+    ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin

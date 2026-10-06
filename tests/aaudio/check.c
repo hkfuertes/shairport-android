@@ -9,6 +9,15 @@ shairport_cfg config;
 
 void mutex_unlock(void *arg) { pthread_mutex_unlock((pthread_mutex_t *)arg); }
 
+static int relayed_frames, relayed_rate;
+static uint64_t relayed_playtime;
+void android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
+                   uint64_t playtime) {
+  relayed_frames = frames;
+  relayed_rate = rate;
+  relayed_playtime = playtime;
+}
+
 void parse_audio_options(__attribute__((unused)) const char *stanza,
                          __attribute__((unused)) uint32_t formats,
                          __attribute__((unused)) uint32_t rates,
@@ -44,6 +53,10 @@ int main(void) {
   // Blocking writes keep the device buffer full: the delay is the whole queue plus the
   // hardware path, and it must stay bounded while we keep writing.
   long first = play_seconds(1.0), second = play_seconds(2.0);
+  assert(relayed_frames == 0); // untimed frames stay here
+  static int16_t timed[2 * 441];
+  assert(audio_aaudio.play(timed, 441, 0, 1, 123456789) == 0);
+  assert(relayed_frames == 441 && relayed_rate == 44100 && relayed_playtime == 123456789);
   assert(first > 0 && first < 44100 && second > 0 && second < 44100);
   long drift = second - first;
   assert(drift > -8192 && drift < 8192); // within one deep-buffer burst
