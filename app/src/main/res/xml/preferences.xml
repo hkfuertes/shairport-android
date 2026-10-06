@@ -8,6 +8,7 @@
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
         <SwitchPreference
+            android:enabled="false"
             android:key="airplay_2"
             android:summary="@string/airplay_2_summary"
             android:title="@string/airplay_2_title" />

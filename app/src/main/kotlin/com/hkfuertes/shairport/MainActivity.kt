@@ -48,15 +48,13 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
         requestNotificationPermission()
         if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
-        // A running receiver also uses root for automatic Wi-Fi protection, when available.
-        if (preferences.getBoolean(Prefs.AIRPLAY_2, false) || preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) checkRoot()
-        else rootPreference.setSummary(R.string.root_access_not_requested)
     }
 
     override fun onResume() {
         super.onResume()
         EngineStatus.addListener(statusListener)
         refreshStatus()
+        checkRoot() // also re-check permission after returning from Magisk
     }
 
     override fun onPause() {
@@ -133,6 +131,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun checkRoot(onGranted: (() -> Unit)? = null) {
         if (rootCheckRunning) return
         rootCheckRunning = true
+        findPreference(Prefs.AIRPLAY_2).isEnabled = false
         rootPreference.isEnabled = false
         rootPreference.setSummary(R.string.root_access_checking)
         Thread({
@@ -144,6 +143,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun applyRootResult(root: Root, onGranted: (() -> Unit)?) {
         if (isFinishing || isDestroyed) return
         rootCheckRunning = false
+        findPreference(Prefs.AIRPLAY_2).isEnabled = root == Root.GRANTED
         rootPreference.isEnabled = root != Root.GRANTED // nothing left to request once granted
         rootPreference.setSummary(
             when (root) {

@@ -9,7 +9,7 @@ A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk
 Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairport-ap2-android/releases) (or `app-release.apk`, see [Build](#build)) and open Shairport:
 
 - **AirPlay receiver** starts or stops it, as do the Quick Settings tile and the notification's *Stop*.
-- **AirPlay 2 (multi-room)** asks Magisk for root to run NQPTP. If root is unavailable, its switch turns off and the receiver stays classic AirPlay.
+- **AirPlay 2** needs root for NQPTP. Its switch stays off and disabled without root; grant it through **Root access** to enable the switch. The receiver stays classic AirPlay otherwise.
 - With **Root access** granted, the receiver automatically keeps Wi-Fi awake, including classic AirPlay and Snapcast. Stopping it restores normal Wi-Fi management. There is no Wi-Fi toggle; the grey Root access summary explains it. Without root, classic AirPlay, satellites and linked volume remain available.
 - **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
 - **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
@@ -88,7 +88,7 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 
 [`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and the app keeps running the receiver. The plugin drives the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
-- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Link Android music volume, Satellites (Snapcast), Start at boot. They show the app's current values, including changes made in the app itself. The status line reports the receiver's state and `N satellites connected` (or `Satellites off`), refreshed every 5 s; while waiting it also shows AirPlay 2 or classic AirPlay. The form is static: clients are counted, not listed individually.
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2, Name, Model, Playback mode, Link Android music volume, Satellites (Snapcast), Start at boot. They show the app's current values, including changes made in the app itself. The status line reports the receiver's state and `N satellites connected` (or `Satellites off`), refreshed every 5 s; while waiting it also shows AirPlay 2 or classic AirPlay. The form is static: clients are counted, not listed individually.
 - Home Assistant (Kiosk Satellite's **Settings > ESPHome**: Enable ESPHome and Expose kiosk entities): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
 Install it with **Plugin Manager > Developer Tools > Install from ZIP**, using `shairport-*.zip` from a release or from `build/kiosk-plugin/`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
@@ -154,6 +154,7 @@ Testing:
 - The plugin's test runs against a fake Kiosk Satellite host in every build.
 - `SatellitesTest` runs the Snapcast server against a fake snapclient in every build.
 - `RootScriptTest` checks automatic Wi-Fi protection with either AirPlay mode, legacy fallback and serialized cleanup with fake commands; it never changes the host's radio.
+- `python3 tests/root-ui/check.py granted` (or `denied`) checks the AirPlay 2 switch and subtitle on an unlocked device with its Magisk policy set accordingly; stop the receiver and set `airplay_2=true` first for the denied case.
 - Without an Apple device, AirConnect's `cliraop -a` (ALAC) plays to classic AirPlay (with Link Android music volume on, `-v 0` sets Android's volume to 0 too). pyatv can't drive this build. AirPlay 2 needs an Apple sender.
 
 ## How it works

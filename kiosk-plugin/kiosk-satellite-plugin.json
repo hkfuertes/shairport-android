@@ -12,7 +12,7 @@
   "capabilities": ["entities", "shizuku"],
   "settings": [
     {"key": "receiver_enabled", "type": "boolean", "title": "AirPlay receiver", "default": true, "description": "Starts or stops Shairport Sync and its AirPlay advertisement. With root, Wi-Fi stays awake automatically while running."},
-    {"key": "airplay_2", "type": "boolean", "title": "AirPlay 2 (multi-room)", "default": false, "description": "Needs root: Magisk may ask on this device. Off: classic AirPlay."},
+    {"key": "airplay_2", "type": "boolean", "title": "AirPlay 2", "default": false, "description": "Multiroom, buffered audio (Needs root: Magisk may ask on this device. Off: classic AirPlay.)"},
     {"key": "server_name", "type": "string", "title": "Name", "default": "", "description": "Name shown in the AirPlay list. Empty: the Android device name."},
     {"key": "model", "type": "select", "title": "Model", "default": "Generic", "options": ["Generic", "HomePod", "HomePod mini"], "description": "Advertised model: the icon senders show. AirPlay 2 only; classic AirPlay is Generic. HomePod models can't be added to the Home app."},
     {"key": "playback_mode", "type": "select", "title": "Playback mode", "default": "Stereo", "options": ["Stereo", "Mono"]},
