@@ -12,6 +12,8 @@ object Prefs {
     const val RECEIVER_ENABLED = "receiver_enabled"
     /** AirPlay 2 (multi-room) needs NQPTP, which needs root; off means classic AirPlay. */
     const val AIRPLAY_2 = "airplay_2"
+    /** Root Wi-Fi protection, independent of the AirPlay version and satellites. */
+    const val WIFI_LOW_LATENCY = "wifi_low_latency"
     const val SERVER_NAME = "server_name"
     const val MODEL = "model"
     const val START_AT_BOOT = "start_at_boot"
@@ -28,6 +30,7 @@ object Prefs {
     fun defaults(context: Context): Map<String, Any> = mapOf(
         RECEIVER_ENABLED to true,
         AIRPLAY_2 to false,
+        WIFI_LOW_LATENCY to false,
         SERVER_NAME to deviceName(context),
         MODEL to GENERIC_MODEL, // HomePod models can't be added to the Home app
         START_AT_BOOT to false,
@@ -54,7 +57,10 @@ object Prefs {
     /** The app's preferences, with defaults stored for unset keys so every reader agrees. */
     fun get(context: Context): SharedPreferences {
         val preferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val missing = defaults(context).filterKeys { !preferences.contains(it) }
+        val missing = defaults(context).toMutableMap().apply {
+            // Preserve the Wi-Fi protection existing AirPlay 2 users already had.
+            this[WIFI_LOW_LATENCY] = preferences.getBoolean(AIRPLAY_2, false)
+        }.filterKeys { !preferences.contains(it) }
         if (missing.isNotEmpty()) {
             val editor = preferences.edit()
             missing.forEach { (key, value) ->
@@ -63,6 +69,11 @@ object Prefs {
             editor.commit()
         }
         return preferences
+    }
+
+    /** Root refusal must not leave root-only toggles claiming they are enabled. */
+    fun disableRootFeatures(preferences: SharedPreferences) {
+        preferences.edit().putBoolean(AIRPLAY_2, false).putBoolean(WIFI_LOW_LATENCY, false).commit()
     }
 
     /** Android's user-visible device name (Settings > About phone), e.g. "Xiaomi Pocophone F1". */

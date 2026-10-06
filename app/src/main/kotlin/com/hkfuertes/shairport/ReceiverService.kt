@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The receiver: a foreground service in the app process that runs Shairport Sync in the :engine
- * process (EngineService, bound while it runs) and, with AirPlay 2 on, NQPTP through su.
+ * process (EngineService, bound while it runs), plus optional NQPTP/Wi-Fi protection through su.
  */
 class ReceiverService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -41,8 +41,9 @@ class ReceiverService : Service() {
     @Volatile private var engine: ServiceConnection? = null
     private var engineConfig: String? = null
     private var engineSatellites = false
-    /** Root watcher running NQPTP; closing its stdin stops it. */
-    private var nqptp: Process? = null
+    private var engineWifiLowLatency = false
+    /** Optional root features; closing stdin restores Wi-Fi and stops NQPTP. */
+    @Volatile private var rootHelper: Process? = null
     /** Worker tasks queued before onDestroy must not start an engine afterwards. */
     @Volatile private var destroyed = false
 
@@ -112,11 +113,11 @@ class ReceiverService : Service() {
         destroyed = true
         engine?.let { runCatching { unbindService(it) } }
         engine = null
-        val watcher = nqptp
+        val watcher = rootHelper
         onWorker {
             EngineStatus.engineStopped()
             awaitEngineExit()
-            stopNqptp(watcher)
+            stopRoot(watcher)
         }
         volumeSync.stop()
         multicastLock?.takeIf { it.isHeld }?.release()
@@ -132,9 +133,10 @@ class ReceiverService : Service() {
         val preferences = Prefs.get(this)
         val name = value(preferences, Prefs.SERVER_NAME)
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
+        val wifiLowLatency = preferences.getBoolean(Prefs.WIFI_LOW_LATENCY, false)
         val config = config(preferences, name, airplay2)
         val satellites = preferences.getBoolean(Prefs.SATELLITES, false)
-        if (engine != null && config == engineConfig && satellites == engineSatellites) {
+        if (engine != null && config == engineConfig && satellites == engineSatellites && wifiLowLatency == engineWifiLowLatency) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
@@ -143,15 +145,25 @@ class ReceiverService : Service() {
         val configFile = File(filesDir, CONFIG_FILE)
         val shm = getExternalFilesDir(null)?.let { File(it, SHM_DIRECTORY) }
         try {
-            configFile.writeText(config)
             shm?.mkdirs()
+            if (airplay2 || wifiLowLatency) {
+                if (shm?.isDirectory == true) startRoot(airplay2, wifiLowLatency, shm)
+                else Prefs.disableRootFeatures(preferences)
+            }
+            // Root refusal (or a setting changed during its prompt): restart with the actual flags.
+            if (destroyed || airplay2 != preferences.getBoolean(Prefs.AIRPLAY_2, false) ||
+                wifiLowLatency != preferences.getBoolean(Prefs.WIFI_LOW_LATENCY, false)) {
+                stopRoot(rootHelper)
+                onWorker { startEngine() }
+                return
+            }
+            configFile.writeText(config)
         } catch (error: Exception) {
+            stopRoot(rootHelper)
             Log.e(TAG, "Could not write Shairport configuration", error)
             notifyForeground(getString(R.string.notification_config_error))
             return
         }
-        // Shairport looks for NQPTP once, when it starts ("auto": classic AirPlay without it).
-        if (airplay2 && shm != null) nqptp = startNqptp()
 
         val startedAt = SystemClock.elapsedRealtime()
         val connection = object : ServiceConnection {
@@ -166,6 +178,7 @@ class ReceiverService : Service() {
             // A change restarts the engine anyway: it changes ignore_volume_control.
             .putExtra(EngineService.EXTRA_LINKED_VOLUME, Prefs.linkedVolume(preferences))
         if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+            stopRoot(rootHelper)
             Log.e(TAG, "Could not start the engine process")
             notifyForeground(getString(R.string.notification_engine_error))
             return
@@ -173,6 +186,7 @@ class ReceiverService : Service() {
         engine = connection
         engineConfig = config
         engineSatellites = satellites
+        engineWifiLowLatency = wifiLowLatency
         notifyForeground(getString(R.string.notification_active, name))
     }
 
@@ -197,8 +211,7 @@ class ReceiverService : Service() {
         engineConfig = null
         EngineStatus.engineStopped()
         awaitEngineExit()
-        stopNqptp(nqptp)
-        nqptp = null
+        stopRoot(rootHelper)
     }
 
     /** Shairport exits in well under a second; a new engine must not start inside the old process. */
@@ -219,73 +232,66 @@ class ReceiverService : Service() {
     private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
         ?.firstOrNull { it.processName == "$packageName:engine" }?.pid
 
-    /**
-     * AirPlay 2 timing: NQPTP binds UDP 319/320, which needs root. Starts the root watcher and
-     * waits for NQPTP's shared memory (or su's refusal); Magisk may be showing its prompt.
-     */
-    private fun startNqptp(): Process? {
+    /** Only explicit root features request su; classic AirPlay and Snapcast never require it. */
+    private fun startRoot(airplay2: Boolean, wifi: Boolean, shm: File) {
+        val userId = android.os.Process.myUid() / PER_USER_RANGE
+        val script = rootScript(
+            "${applicationInfo.nativeLibraryDir}/libnqptp.so",
+            "/data/media/$userId/Android/data/$packageName/files/${shm.name}",
+            airplay2,
+            wifi,
+        )
         val process = try {
-            ProcessBuilder("su", "-c", nqptpScript()).redirectErrorStream(true).start()
+            ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
         } catch (error: IOException) {
-            Log.w(TAG, "No su: AirPlay 2 needs root; starting classic AirPlay", error)
-            return null
+            Log.w(TAG, "No su; disabling root-only features", error)
+            Prefs.disableRootFeatures(Prefs.get(this))
+            return
         }
+        rootHelper = process
         val ready = CountDownLatch(1)
+        var rootReady = false
+        var wifiReady = false
         Thread({
             runCatching {
                 process.inputStream.bufferedReader().forEachLine { line ->
+                    if (rootHelper !== process) return@forEachLine // an old watcher's cleanup
                     when (line) {
-                        "$MARKER up" -> EngineStatus.nqptpRunning(true).also { ready.countDown() }
-                        "$MARKER down" -> EngineStatus.nqptpRunning(false).also { ready.countDown() }
+                        "$NQPTP_MARKER up" -> EngineStatus.nqptpRunning(true)
+                        "$NQPTP_MARKER down" -> EngineStatus.nqptpRunning(false)
+                        "$WIFI_MARKER up" -> wifiReady = true
+                        ROOT_READY -> { rootReady = true; ready.countDown() }
                         else -> Log.i(TAG, line)
                     }
                 }
             }
             ready.countDown() // su refused or ended
-        }, "nqptp-log").start()
-        if (!ready.await(NQPTP_START_TIMEOUT_S, TimeUnit.SECONDS)) Log.w(TAG, "NQPTP not ready in time")
-        return process
+            onWorker {
+                if (rootHelper === process && !destroyed) {
+                    Log.w(TAG, "Root helper exited; disabling root-only features")
+                    Prefs.disableRootFeatures(Prefs.get(this))
+                    stopEngine()
+                    startEngine()
+                }
+            }
+        }, "root-log").start()
+        if (!ready.await(ROOT_START_TIMEOUT_S, TimeUnit.SECONDS) || !rootReady) {
+            Prefs.disableRootFeatures(Prefs.get(this))
+            stopRoot(process)
+            return
+        }
+        val editor = Prefs.get(this).edit()
+        if (airplay2 && !EngineStatus.nqptp) editor.putBoolean(Prefs.AIRPLAY_2, false)
+        if (wifi && !wifiReady) editor.putBoolean(Prefs.WIFI_LOW_LATENCY, false)
+        editor.commit()
     }
 
-    private fun stopNqptp(process: Process?) {
+    private fun stopRoot(process: Process?) {
         process ?: return
-        runCatching { process.outputStream.close() } // EOF: the watcher stops NQPTP
-        if (!process.waitFor(NQPTP_STOP_TIMEOUT_S, TimeUnit.SECONDS)) process.destroy()
+        if (rootHelper === process) rootHelper = null
+        runCatching { process.outputStream.close() } // EOF restores Wi-Fi and stops NQPTP
+        if (!process.waitFor(ROOT_STOP_TIMEOUT_S, TimeUnit.SECONDS)) process.destroy()
         EngineStatus.nqptpRunning(false)
-    }
-
-    /**
-     * Runs as root until its stdin reaches EOF: the app stopped AirPlay 2, or died. NQPTP writes
-     * its shared memory where Magisk root may write and the app may read: external app storage.
-     */
-    private fun nqptpScript(): String {
-        val userId = android.os.Process.myUid() / PER_USER_RANGE
-        val shm = shellQuote("/data/media/$userId/Android/data/$packageName/files/$SHM_DIRECTORY")
-        val binary = shellQuote("${applicationInfo.nativeLibraryDir}/libnqptp.so")
-        return """
-            trap '' PIPE # the app (our stdout reader) may already be dead
-            exec 4<&0 0</dev/null
-            # One NQPTP at a time: the previous one may still be shutting down (app restart).
-            old=${'$'}(pidof libnqptp.so)
-            if [ -n "${'$'}old" ]; then kill ${'$'}old; sleep 0.5; kill -9 ${'$'}old; fi 2>/dev/null
-            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still works)
-            # and satellites starve. App Wi-Fi locks can't prevent it on API 34+, nor can
-            # force-hi-perf-mode once the device dozes; low-latency mode does, until NQPTP stops.
-            cmd wifi force-low-latency-mode enabled >/dev/null 2>&1
-            export NQPTP_SHM_DIRECTORY=$shm
-            rm -f $shm/nqptp
-            $binary 4<&- &
-            nqptp=${'$'}!
-            i=0
-            while [ ! -s $shm/nqptp ] && [ ${'$'}i -lt 50 ]; do sleep 0.1; i=${'$'}((i + 1)); done
-            if [ -s $shm/nqptp ]; then echo "$MARKER up"; else echo "$MARKER down"; fi
-            read -r _ <&4
-            kill ${'$'}nqptp 2>/dev/null
-            sleep 1
-            kill -9 ${'$'}nqptp 2>/dev/null
-            cmd wifi force-low-latency-mode disabled >/dev/null 2>&1
-            echo "$MARKER down"
-        """.trimIndent()
     }
 
     // No port: Shairport always uses 7000 for AirPlay 2 and 5000 for classic AirPlay.
@@ -326,8 +332,6 @@ class ReceiverService : Service() {
         preferences.getString(key, null).takeUnless { it.isNullOrBlank() }
             ?: Prefs.defaults(this)[key] as String
 
-    private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
-
     @Suppress("DEPRECATION") // allNetworks: simplest way to read the current Wi-Fi address once
     private fun wifiAddress(): String? {
         val connectivity = getSystemService(ConnectivityManager::class.java)
@@ -340,8 +344,8 @@ class ReceiverService : Service() {
 
     /**
      * Multicast for mDNS. The high-performance lock keeps the receiver reachable with the screen
-     * off up to Android 13; from 14 on it only works with the screen on (AirPlay 2's root
-     * watcher forces hi-perf mode instead).
+     * off up to Android 13; from 14 on it only works with the screen on. Optional root Wi-Fi
+     * protection forces low-latency mode independently of the AirPlay version.
      */
     @Suppress("DEPRECATION") // WIFI_MODE_FULL_HIGH_PERF: the lock that still works before API 34
     private fun acquireWifiLocks() {
@@ -404,7 +408,6 @@ class ReceiverService : Service() {
 
     companion object {
         private const val TAG = "Shairport"
-        private const val MARKER = "@nqptp"
         private const val ACTION_STOP = "com.hkfuertes.shairport.STOP"
         private const val CHANNEL_ID = "shairport_receiver"
         private const val NOTIFICATION_ID = 1
@@ -416,8 +419,8 @@ class ReceiverService : Service() {
         private const val ENGINE_EXIT_POLLS = 50
         private const val ENGINE_EXIT_POLL_MS = 100L
         /** Covers Magisk's grant prompt (10 s by default). */
-        private const val NQPTP_START_TIMEOUT_S = 15L
-        private const val NQPTP_STOP_TIMEOUT_S = 3L
+        private const val ROOT_START_TIMEOUT_S = 15L
+        private const val ROOT_STOP_TIMEOUT_S = 3L
 
         /** One worker for every instance: a new service's start waits for the old one's stop. */
         private val worker = Executors.newSingleThreadExecutor()

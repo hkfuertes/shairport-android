@@ -31,11 +31,13 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             checkRoot()
             true
         }
-        // Only AirPlay 2 needs root: the switch turns on once su is granted (Magisk may prompt).
-        findPreference(Prefs.AIRPLAY_2).setOnPreferenceChangeListener { preference, value ->
-            if (value != true) return@setOnPreferenceChangeListener true
-            checkRoot { (preference as SwitchPreference).isChecked = true }
-            false
+        // Root-only switches turn on only after su is granted (Magisk may prompt).
+        listOf(Prefs.AIRPLAY_2, Prefs.WIFI_LOW_LATENCY).forEach { key ->
+            findPreference(key).setOnPreferenceChangeListener { preference, value ->
+                if (value != true) return@setOnPreferenceChangeListener true
+                checkRoot { (preference as SwitchPreference).isChecked = true }
+                false
+            }
         }
         // Started from the tap itself: Android forbids foreground services started from the
         // background, which a preference listener may be (e.g. adb changes it while we're paused).
@@ -48,8 +50,8 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
         requestNotificationPermission()
         if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
-        // Asking su without need would make Magisk prompt users who never wanted AirPlay 2.
-        if (preferences.getBoolean(Prefs.AIRPLAY_2, false)) checkRoot()
+        // Never prompt classic/non-root users unless they opted into a root feature.
+        if (preferences.getBoolean(Prefs.AIRPLAY_2, false) || preferences.getBoolean(Prefs.WIFI_LOW_LATENCY, false)) checkRoot()
         else rootPreference.setSummary(R.string.root_access_not_requested)
     }
 
@@ -113,6 +115,9 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == Prefs.AIRPLAY_2 || key == Prefs.WIFI_LOW_LATENCY) {
+            (findPreference(key) as SwitchPreference).isChecked = sharedPreferences.getBoolean(key, false)
+        }
         when (key) {
             Prefs.AIRPLAY_2 -> {
                 refreshModel()
@@ -150,7 +155,10 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             },
         )
         if (root == Root.GRANTED) onGranted?.invoke()
-        else if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
+        else {
+            Prefs.disableRootFeatures(preferences)
+            if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
