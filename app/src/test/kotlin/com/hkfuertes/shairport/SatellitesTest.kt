@@ -38,6 +38,7 @@ class SatellitesTest {
                 assertEquals(SERVER_SETTINGS, settings.type)
                 assertEquals(7, settings.refersTo)
                 assertTrue(text(settings.payload).contains("\"bufferMs\":$BUFFER_MS"))
+                assertTrue(text(settings.payload).contains("\"volume\":100"))
                 val codec = read(input)
                 assertEquals(CODEC_HEADER, codec.type)
                 assertEquals("pcm", String(ByteArray(codec.payload.getInt(0)).also { codec.payload.position(4); codec.payload.get(it) }))
@@ -82,6 +83,13 @@ class SatellitesTest {
                 // A flush (no frames): the codec header again, so clients drop what they hold.
                 satellites.audio(ByteArray(0), 0, 0)
                 assertEquals(CODEC_HEADER, read(input).type)
+
+                // Linked volume: new settings, unasked, with the same buffer (no resync).
+                satellites.volume = 40
+                val pushed = read(input)
+                assertEquals(SERVER_SETTINGS, pushed.type)
+                assertTrue(text(pushed.payload).contains("\"volume\":40"))
+                assertTrue(text(pushed.payload).contains("\"bufferMs\":$BUFFER_MS"))
             }
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
 

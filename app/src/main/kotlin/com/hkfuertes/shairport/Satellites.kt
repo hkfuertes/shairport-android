@@ -38,6 +38,17 @@ class Satellites(
     private val lock = Any()
     @Volatile private var codecHeader = codecHeader(DEFAULT_RATE)
 
+    /**
+     * Every client's volume, in percent: Snapcast's own, which each client applies itself. 100 while
+     * the AirPlay volume is in the PCM; with linked volume, this device's music volume (EngineService).
+     */
+    var volume = 100
+        set(percent) = synchronized(lock) {
+            if (percent == field) return
+            field = percent
+            clients.forEach { if (it.ready) it.send(SERVER_SETTINGS, settings(percent)) }
+        }
+
     // Chunking: only the player thread (audio) touches these.
     private var rate = DEFAULT_RATE
     private var chunk = ByteArray(chunkBytes(rate))
@@ -169,7 +180,7 @@ class Satellites(
                         val json = String(payload, Charsets.UTF_8).dropWhile { it != '{' }
                         log("Satellite $name connected: $json")
                         synchronized(lock) {
-                            send(SERVER_SETTINGS, SETTINGS, refersTo = id)
+                            send(SERVER_SETTINGS, settings(volume), refersTo = id)
                             send(CODEC_HEADER, codecHeader)
                             hello = json
                         }
@@ -222,8 +233,8 @@ class Satellites(
         private const val QUEUE_LENGTH = 50 // ~1 s of chunks; snapclient reconnects after 2 s without a Time reply
         private const val MAX_PAYLOAD = 1 shl 20
 
-        // Volume stays 100: Shairport puts the AirPlay volume in the PCM when satellites run.
-        private val SETTINGS = """{"bufferMs":$BUFFER_MS,"latency":0,"muted":false,"volume":100}"""
+        // Same bufferMs and latency every time: a change would make clients resync.
+        private fun settings(volume: Int) = """{"bufferMs":$BUFFER_MS,"latency":0,"muted":false,"volume":$volume}"""
             .toByteArray().let { le(4 + it.size).putInt(it.size).put(it).array() }
 
         private fun listen(port: Int) = ServerSocket().apply {

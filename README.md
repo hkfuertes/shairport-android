@@ -12,7 +12,7 @@ Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairpor
 - **AirPlay 2 (multi-room)** asks Magisk for root to run NQPTP. Without root the receiver stays classic AirPlay.
 - **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
 - **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
-- **Link Android music volume** defaults on: AirPlay changes Android's music volume. Turn it off to keep that volume fixed and apply AirPlay volume only to this receiver.
+- **Link Android music volume** defaults on: AirPlay changes Android's music volume, and satellites follow it. Turn it off to keep that volume fixed and apply AirPlay volume only to this receiver's audio (satellites included).
 - **Satellites (Snapcast)**: Snapcast clients play along, in sync (see [Satellites](#satellites-snapcast)). **Connected satellites** shows where to point them and who is connected.
 - **Status** shows each part: Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback.
 
@@ -112,7 +112,8 @@ With **Satellites (Snapcast)** on (adb: `--es key satellites --ez value true`), 
 - Clients: `snapclient` on Linux, an [ESP32](https://github.com/CarlosDerSeher/snapclient), [Snapdroid](https://github.com/badaix/snapdroid) on Android. They find the server over mDNS (`_snapcast._tcp`, named `Snapcast`) or at the device's address, port 1704: **Connected satellites** shows that address, and each client connected with its name, address and version. When pointing them at the address, give the device a fixed one (a DHCP reservation).
 - Clients reconnect by themselves, after an engine restart (any settings change restarts it) or when the device is back on the network. Use AirPlay 2 for satellites: its root watcher keeps Wi-Fi out of power save, so they keep playing with the screen off (verified on the POCO, Android 15). With classic AirPlay the device may stop answering with the screen off (see [Limitations](#limitations)), and satellites wait until it's back.
 - Each buffer goes out with the time Shairport plays it, on the sender's timeline (AirPlay 2's PTP clock included), as 20 ms chunks of 16-bit PCM: about 1.4 Mbit/s per client. Clients play it at that time, so they follow the AirPlay timeline, not this device's speaker.
-- AirPlay volume goes into the audio itself, as with Link Android music volume off (the switch turns the link off), over a 40 dB range. A change is heard about 1 s later (see below). Each satellite's own level is set on the satellite, and this device's with its own volume.
+- Volume, with **Link Android music volume** on: satellites play at this device's music volume, however it is set (sender, volume keys, Home Assistant). It goes to them as their Snapcast volume, which each client applies at once (snapclient does; an ESPHome snapclient moves its media player's volume), while the audio goes at full scale. A client that ignores it plays at full volume.
+- With the link off, AirPlay volume goes into the audio itself, over a 40 dB range, and a change is heard about 1 s later (see below). Each satellite's own level is set on the satellite, and this device's with its own volume.
 - Port 1705 accepts connections and answers nothing: Snapdroid only offers Play while connected there, so its group list stays empty.
 - Satellites get the audio about 1 s ahead: with them on, Shairport keeps 1 s in the AAudio buffer instead of 0.5 s, room for Wi-Fi hiccups. When audio is heard doesn't change, only how early it leaves. A client cut off for longer goes silent and comes back in sync. Clients buffer 1.5 s, so an ESP32 needs PSRAM. On pause or skip they get a new codec header, drop what they hold and stop with this device.
 
@@ -160,7 +161,7 @@ The rule: whatever Android can do, Android does; root only where nothing else wo
 - AirPlay 2: NQPTP binds UDP ports 319 and 320, which takes root. With the switch on, `ReceiverService` runs a root watcher through `su`: it forces Wi-Fi low-latency mode (no power save) and runs NQPTP until the app stops it or dies. NQPTP's shared memory lives in external app storage, which both root and the app can reach. Without NQPTP (su denied), Shairport falls back to classic AirPlay.
 - Device ID: apps can't read the MAC address, so the AirPlay device ID comes from `ANDROID_ID`.
 - Satellites: patch `0009` hands every buffer the AAudio backend plays, with the time Shairport says it is heard, to `Satellites.kt` in the `:engine` process, the Snapcast server, and an empty one on a flush (pause, skip). Its connects and disconnects reach the app's screens over the engine's status `Messenger`.
-- Volume: with Link Android music volume on (and no satellites), Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With it off, Shairport applies AirPlay volume itself.
+- Volume: with Link Android music volume on, Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With satellites, the engine passes every change of that volume on to them (Android's volume-change broadcast). With it off, Shairport applies AirPlay volume itself.
 - Wi-Fi: a high-performance Wi-Fi lock keeps the receiver reachable with the screen off up to Android 13 (see [Limitations](#limitations)).
 
 ## Layout

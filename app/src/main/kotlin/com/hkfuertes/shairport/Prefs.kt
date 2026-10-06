@@ -36,9 +36,8 @@ object Prefs {
         SATELLITES to false,
     )
 
-    /** Volume on STREAM_MUSIC, not in the PCM: never with satellites, which only get the PCM. */
-    fun linkedVolume(preferences: SharedPreferences): Boolean =
-        preferences.getBoolean(LINK_STREAM_VOLUME, true) && !preferences.getBoolean(SATELLITES, false)
+    /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Snapcast volume. */
+    fun linkedVolume(preferences: SharedPreferences): Boolean = preferences.getBoolean(LINK_STREAM_VOLUME, true)
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */
     fun choices(context: Context): Map<String, List<String>> = mapOf(

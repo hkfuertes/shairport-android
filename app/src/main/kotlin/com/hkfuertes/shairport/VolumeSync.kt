@@ -10,8 +10,8 @@ import java.net.InetAddress
 import kotlin.math.roundToInt
 
 /**
- * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume] (link on, no satellites),
- * Shairport ignores volume control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC. Play state (`snam`,
+ * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume], Shairport ignores volume
+ * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which satellites follow (EngineService). Play state (`snam`,
  * `pbeg`, `pend`, `disc`) and the track (`core` `minm`, `asar`, `asal`) go to [EngineStatus].
  *
  * ponytail: one-way on purpose. Android -> sender is left out until Shairport's AirPlay 2 remote

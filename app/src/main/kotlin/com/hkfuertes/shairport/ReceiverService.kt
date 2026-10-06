@@ -163,6 +163,8 @@ class ReceiverService : Service() {
             .putExtra(EngineService.EXTRA_SHM_DIRECTORY, shm?.path.orEmpty())
             .putExtra(EngineService.EXTRA_STATUS, engineMessages)
             .putExtra(EngineService.EXTRA_SATELLITES, satellites)
+            // A change restarts the engine anyway: it changes ignore_volume_control.
+            .putExtra(EngineService.EXTRA_LINKED_VOLUME, Prefs.linkedVolume(preferences))
         if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
             Log.e(TAG, "Could not start the engine process")
             notifyForeground(getString(R.string.notification_engine_error))

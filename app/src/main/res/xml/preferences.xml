@@ -37,12 +37,10 @@
             android:summary="@string/playback_mode_summary"
             android:title="@string/playback_mode_title" />
         <SwitchPreference
-            android:dependency="satellites"
             android:key="link_stream_volume"
             android:summary="@string/link_stream_volume_summary"
             android:title="@string/link_stream_volume_title" />
         <SwitchPreference
-            android:disableDependentsState="true"
             android:key="satellites"
             android:summary="@string/satellites_summary"
             android:title="@string/satellites_title" />
