@@ -46,6 +46,15 @@
             android:key="satellites"
             android:summary="@string/satellites_summary"
             android:title="@string/satellites_title" />
+        <!-- Summary: MainActivity, from EngineStatus. -->
+        <Preference
+            android:key="satellites_list"
+            android:persistent="false"
+            android:title="@string/satellites_list_title">
+            <intent
+                android:targetClass="com.hkfuertes.shairport.SatellitesActivity"
+                android:targetPackage="com.hkfuertes.shairport" />
+        </Preference>
     </PreferenceCategory>
 
     <PreferenceCategory

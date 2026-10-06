@@ -106,6 +106,9 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             "status_playback",
             EngineStatus.source?.let { getString(R.string.status_playing, it) } ?: getString(R.string.status_idle),
         )
+        findPreference(PREF_SATELLITES_LIST).summary =
+            if (preferences.getBoolean(Prefs.SATELLITES, false)) getString(R.string.satellites_list_summary, EngineStatus.satellites.size)
+            else getString(R.string.satellites_off)
     }
 
     // Configuration changes are applied by the running service itself (it listens too).
@@ -116,6 +119,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
                 refreshStatus()
             }
             Prefs.MODEL -> refreshModel()
+            Prefs.SATELLITES -> refreshStatus()
             // The tile, the notification's "Stop" or adb may change it while this screen is open.
             Prefs.RECEIVER_ENABLED -> (findPreference(Prefs.RECEIVER_ENABLED) as SwitchPreference).isChecked =
                 sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
@@ -202,6 +206,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val PREF_STATUS = "status"
+        private const val PREF_SATELLITES_LIST = "satellites_list"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
     }
 }

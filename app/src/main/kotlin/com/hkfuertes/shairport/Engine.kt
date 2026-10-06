@@ -6,6 +6,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.os.Message
 import android.os.Messenger
@@ -38,12 +39,20 @@ object Engine {
 
     /** Snapcast server for satellites, for the rest of this process (one engine run). */
     fun startSatellites() {
-        satellites = runCatching { Satellites(log = { Log.i(TAG, it) }) }
+        satellites = runCatching { Satellites(log = { Log.i(TAG, it) }, changed = ::reportSatellites) }
             .onFailure { Log.e(TAG, "Satellites: could not listen on ${Satellites.PORT}", it) }
             .getOrNull() ?: return
         relayAudio(true)
         // Snapdroid only takes a server whose name starts with "Snapcast".
         mdnsPublish("_snapcast._tcp", "Snapcast".toByteArray(), Satellites.PORT, emptyArray())
+    }
+
+    private fun reportSatellites(connected: List<Pair<String, String>>) {
+        val data = Bundle().apply {
+            putStringArrayList(EngineService.KEY_ADDRESSES, ArrayList(connected.map { it.first }))
+            putStringArrayList(EngineService.KEY_HELLOS, ArrayList(connected.map { it.second }))
+        }
+        runCatching { status?.send(Message.obtain(null, EngineService.MSG_SATELLITES).apply { this.data = data }) }
     }
 
     /** Patch 0009, on Shairport's player thread: see [Satellites.audio]. */
@@ -166,6 +175,10 @@ class EngineService : Service() {
         const val EXTRA_SATELLITES = "satellites"
         /** arg1: advertised at all; arg2: as AirPlay 2 (`_airplay._tcp`). */
         const val MSG_ADVERTISED = 1
+        /** data: [KEY_ADDRESSES] and [KEY_HELLOS] of the connected satellites. */
+        const val MSG_SATELLITES = 2
+        const val KEY_ADDRESSES = "addresses"
+        const val KEY_HELLOS = "hellos"
         private const val TAG = "Shairport"
         private var started = false
     }

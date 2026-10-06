@@ -47,7 +47,13 @@ class ReceiverService : Service() {
     @Volatile private var destroyed = false
 
     private val engineMessages = Messenger(Handler(Looper.getMainLooper()) { message ->
-        if (message.what == EngineService.MSG_ADVERTISED) EngineStatus.advertised(message.arg1 != 0, message.arg2 != 0)
+        when (message.what) {
+            EngineService.MSG_ADVERTISED -> EngineStatus.advertised(message.arg1 != 0, message.arg2 != 0)
+            EngineService.MSG_SATELLITES -> EngineStatus.satellites(
+                message.data.getStringArrayList(EngineService.KEY_ADDRESSES).orEmpty(),
+                message.data.getStringArrayList(EngineService.KEY_HELLOS).orEmpty(),
+            )
+        }
         true
     })
 

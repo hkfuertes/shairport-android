@@ -1,6 +1,7 @@
 package com.hkfuertes.shairport
 
 import java.util.concurrent.CopyOnWriteArraySet
+import org.json.JSONObject
 
 /**
  * Live state of each part of the receiver, shown in the settings screen. Written by
@@ -30,6 +31,12 @@ object EngineStatus {
         private set
     @Volatile var album: String? = null
         private set
+    /** Snapcast clients connected to the engine's Satellites server. */
+    @Volatile var satellites: List<Satellite> = emptyList()
+        private set
+
+    /** [name]: the client's HostName; [client]: its ClientName and Version ("Snapclient 0.31.0"). */
+    class Satellite(val name: String, val address: String, val client: String)
 
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 
@@ -63,7 +70,18 @@ object EngineStatus {
         shairport = false
         advertising = false
         airplay2 = false
+        satellites = emptyList()
         playing(false)
+    }
+
+    /** Their Hello messages: JSON, from a client of any make, so every field is optional. */
+    fun satellites(addresses: List<String>, hellos: List<String>) {
+        satellites = addresses.zip(hellos) { address, hello ->
+            val json = runCatching { JSONObject(hello) }.getOrElse { JSONObject() }
+            val client = listOf(json.optString("ClientName"), json.optString("Version")).filter { it.isNotBlank() }
+            Satellite(json.optString("HostName").ifBlank { address }, address, client.joinToString(" "))
+        }
+        changed()
     }
 
     /** Shairport metadata: `snam` names the sender, `pbeg`/`pend` bracket playback. */

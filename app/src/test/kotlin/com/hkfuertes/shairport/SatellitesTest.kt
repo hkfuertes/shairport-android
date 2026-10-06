@@ -12,6 +12,8 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -23,7 +25,8 @@ class SatellitesTest {
 
     @Test
     fun servesASnapclient() {
-        Satellites(port = 0, controlPort = 0).use { satellites ->
+        val reports = LinkedBlockingQueue<List<Pair<String, String>>>()
+        Satellites(port = 0, controlPort = 0, changed = { reports.put(it) }).use { satellites ->
             Socket("127.0.0.1", satellites.port).use { socket ->
                 socket.soTimeout = 5000
                 val input = DataInputStream(socket.getInputStream())
@@ -39,6 +42,7 @@ class SatellitesTest {
                 assertEquals(CODEC_HEADER, codec.type)
                 assertEquals("pcm", String(ByteArray(codec.payload.getInt(0)).also { codec.payload.position(4); codec.payload.get(it) }))
                 assertEquals(44100, codec.payload.getInt(4 + 3 + 4 + 24)) // RIFF header's sample rate
+                assertEquals(listOf("127.0.0.1" to """{"HostName":"test"}"""), reports.poll(5, TimeUnit.SECONDS))
 
                 // Time: latency = our receive time - the client's send time (its clock 5 s behind).
                 val clientSent = System.nanoTime() / 1000 - 5_000_000
@@ -75,6 +79,7 @@ class SatellitesTest {
                 }
                 assertEquals(resumed / 1000 - BUFFER_MS * 1000, timestamp(read(input)))
             }
+            assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
 
             // Snapdroid's control connection stays open, unanswered.
             Socket("127.0.0.1", satellites.controlPort).use { control ->

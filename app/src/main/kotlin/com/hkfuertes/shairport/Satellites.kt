@@ -28,6 +28,8 @@ class Satellites(
     port: Int = PORT,
     controlPort: Int = CONTROL_PORT,
     private val log: (String) -> Unit = {},
+    /** Every connect and disconnect: each client's address and Hello (JSON: HostName, Version...). */
+    private val changed: (List<Pair<String, String>>) -> Unit = {},
 ) : AutoCloseable {
     private val server = listen(port)
     private val control = listen(controlPort)
@@ -109,9 +111,11 @@ class Satellites(
     private inner class Client(private val socket: Socket) {
         private val queue = ArrayBlockingQueue<Message>(QUEUE_LENGTH)
         private val name = socket.remoteSocketAddress.toString()
+        val address: String = socket.inetAddress.hostAddress.orEmpty()
         private var writer: Thread? = null
-        /** Hello answered: chunks follow. */
-        @Volatile var ready = false
+        /** Its Hello, once answered: chunks follow. */
+        @Volatile var hello: String? = null
+        val ready get() = hello != null
 
         // ponytail: no read timeout. An ESP32 only sends Time while it receives audio, and a
         // vanished client is found once audio flows (its queue fills).
@@ -132,6 +136,7 @@ class Satellites(
             runCatching { socket.close() }
             writer?.interrupt()
             log("Satellite $name disconnected")
+            report()
         }
 
         private fun read() {
@@ -150,11 +155,15 @@ class Satellites(
                 when (type) {
                     // Server settings (snapclient waits for them as the Hello's answer), then the
                     // codec header: from then on, chunks.
-                    HELLO -> synchronized(lock) {
-                        log("Satellite $name connected: ${String(payload, Charsets.UTF_8).dropWhile { it != '{' }}")
-                        send(SERVER_SETTINGS, SETTINGS, refersTo = id)
-                        send(CODEC_HEADER, codecHeader)
-                        ready = true
+                    HELLO -> {
+                        val json = String(payload, Charsets.UTF_8).dropWhile { it != '{' }
+                        log("Satellite $name connected: $json")
+                        synchronized(lock) {
+                            send(SERVER_SETTINGS, SETTINGS, refersTo = id)
+                            send(CODEC_HEADER, codecHeader)
+                            hello = json
+                        }
+                        report()
                     }
                     // latency = server receive time - client send time; the client works out the
                     // clock difference from it and our send time in the reply's header.
@@ -177,6 +186,8 @@ class Satellites(
             }
         }
     }
+
+    private fun report() = changed(clients.mapNotNull { client -> client.hello?.let { client.address to it } })
 
     private class Message(val type: Int, val refersTo: Int, val payload: ByteArray)
 
