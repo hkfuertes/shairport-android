@@ -74,14 +74,16 @@ public final class ShairportPlugin implements KioskPlugin {
     synchronized void attach(PluginHost host, Map<String, Object> settings) {
         this.host = host;
         this.settings = new LinkedHashMap<>(settings);
-        // Older saved forms still need a boolean type for app-to-plugin reconciliation.
-        this.settings.putIfAbsent("wifi_low_latency", false);
+        // Wi-Fi protection is automatic now; discard the old saved toggle.
+        this.settings.remove("wifi_low_latency");
     }
 
     /** A form edit (KS UI or Remote Admin): send each changed value to the app. */
     @Override
     public synchronized void configure(Map<String, Object> next) {
         if (host == null) return;
+        next = new LinkedHashMap<>(next);
+        next.remove("wifi_low_latency");
         for (Map.Entry<String, Object> entry : next.entrySet()) {
             if (!Objects.equals(entry.getValue(), settings.get(entry.getKey()))) {
                 queue.add(set(entry.getKey(), entry.getValue()));

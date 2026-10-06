@@ -12,10 +12,6 @@
             android:summary="@string/airplay_2_summary"
             android:title="@string/airplay_2_title" />
         <SwitchPreference
-            android:key="wifi_low_latency"
-            android:summary="@string/wifi_low_latency_summary"
-            android:title="@string/wifi_low_latency_title" />
-        <SwitchPreference
             android:key="start_at_boot"
             android:summary="@string/start_at_boot_summary"
             android:title="@string/start_at_boot_title" />

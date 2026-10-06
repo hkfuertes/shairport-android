@@ -41,7 +41,8 @@ class ReceiverService : Service() {
     @Volatile private var engine: ServiceConnection? = null
     private var engineConfig: String? = null
     private var engineSatellites = false
-    private var engineWifiLowLatency = false
+    /** Retry unavailable root on the next receiver start, or an explicit AirPlay 2 request. */
+    private var rootUnavailable = false
     /** Optional root features; closing stdin restores Wi-Fi and stops NQPTP. */
     @Volatile private var rootHelper: Process? = null
     /** Worker tasks queued before onDestroy must not start an engine afterwards. */
@@ -133,10 +134,9 @@ class ReceiverService : Service() {
         val preferences = Prefs.get(this)
         val name = value(preferences, Prefs.SERVER_NAME)
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
-        val wifiLowLatency = preferences.getBoolean(Prefs.WIFI_LOW_LATENCY, false)
         val config = config(preferences, name, airplay2)
         val satellites = preferences.getBoolean(Prefs.SATELLITES, false)
-        if (engine != null && config == engineConfig && satellites == engineSatellites && wifiLowLatency == engineWifiLowLatency) {
+        if (engine != null && config == engineConfig && satellites == engineSatellites) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
@@ -146,13 +146,12 @@ class ReceiverService : Service() {
         val shm = getExternalFilesDir(null)?.let { File(it, SHM_DIRECTORY) }
         try {
             shm?.mkdirs()
-            if (airplay2 || wifiLowLatency) {
-                if (shm?.isDirectory == true) startRoot(airplay2, wifiLowLatency, shm)
+            if (airplay2 || !rootUnavailable) {
+                if (shm?.isDirectory == true) startRoot(airplay2, shm)
                 else Prefs.disableRootFeatures(preferences)
             }
-            // Root refusal (or a setting changed during its prompt): restart with the actual flags.
-            if (destroyed || airplay2 != preferences.getBoolean(Prefs.AIRPLAY_2, false) ||
-                wifiLowLatency != preferences.getBoolean(Prefs.WIFI_LOW_LATENCY, false)) {
+            // Root refusal (or a setting changed during its prompt): restart in the actual mode.
+            if (destroyed || airplay2 != preferences.getBoolean(Prefs.AIRPLAY_2, false)) {
                 stopRoot(rootHelper)
                 onWorker { startEngine() }
                 return
@@ -186,7 +185,6 @@ class ReceiverService : Service() {
         engine = connection
         engineConfig = config
         engineSatellites = satellites
-        engineWifiLowLatency = wifiLowLatency
         notifyForeground(getString(R.string.notification_active, name))
     }
 
@@ -232,26 +230,25 @@ class ReceiverService : Service() {
     private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
         ?.firstOrNull { it.processName == "$packageName:engine" }?.pid
 
-    /** Only explicit root features request su; classic AirPlay and Snapcast never require it. */
-    private fun startRoot(airplay2: Boolean, wifi: Boolean, shm: File) {
+    /** With root, protect Wi-Fi automatically; classic AirPlay and Snapcast still work without it. */
+    private fun startRoot(airplay2: Boolean, shm: File) {
         val userId = android.os.Process.myUid() / PER_USER_RANGE
         val script = rootScript(
             "${applicationInfo.nativeLibraryDir}/libnqptp.so",
             "/data/media/$userId/Android/data/$packageName/files/${shm.name}",
             airplay2,
-            wifi,
         )
         val process = try {
             ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
         } catch (error: IOException) {
-            Log.w(TAG, "No su; disabling root-only features", error)
+            rootUnavailable = true
+            if (airplay2) Log.w(TAG, "No su; starting classic AirPlay", error)
             Prefs.disableRootFeatures(Prefs.get(this))
             return
         }
         rootHelper = process
         val ready = CountDownLatch(1)
         var rootReady = false
-        var wifiReady = false
         Thread({
             runCatching {
                 process.inputStream.bufferedReader().forEachLine { line ->
@@ -259,7 +256,8 @@ class ReceiverService : Service() {
                     when (line) {
                         "$NQPTP_MARKER up" -> EngineStatus.nqptpRunning(true)
                         "$NQPTP_MARKER down" -> EngineStatus.nqptpRunning(false)
-                        "$WIFI_MARKER up" -> wifiReady = true
+                        "$WIFI_MARKER up" -> Log.i(TAG, "Root Wi-Fi protection enabled")
+                        "$WIFI_MARKER down" -> Log.i(TAG, "Root Wi-Fi protection unavailable on this device")
                         ROOT_READY -> { rootReady = true; ready.countDown() }
                         else -> Log.i(TAG, line)
                     }
@@ -268,7 +266,8 @@ class ReceiverService : Service() {
             ready.countDown() // su refused or ended
             onWorker {
                 if (rootHelper === process && !destroyed) {
-                    Log.w(TAG, "Root helper exited; disabling root-only features")
+                    Log.w(TAG, "Root helper exited; starting without root")
+                    rootUnavailable = true
                     Prefs.disableRootFeatures(Prefs.get(this))
                     stopEngine()
                     startEngine()
@@ -276,14 +275,13 @@ class ReceiverService : Service() {
             }
         }, "root-log").start()
         if (!ready.await(ROOT_START_TIMEOUT_S, TimeUnit.SECONDS) || !rootReady) {
+            rootUnavailable = true
             Prefs.disableRootFeatures(Prefs.get(this))
             stopRoot(process)
             return
         }
-        val editor = Prefs.get(this).edit()
-        if (airplay2 && !EngineStatus.nqptp) editor.putBoolean(Prefs.AIRPLAY_2, false)
-        if (wifi && !wifiReady) editor.putBoolean(Prefs.WIFI_LOW_LATENCY, false)
-        editor.commit()
+        rootUnavailable = false
+        if (airplay2 && !EngineStatus.nqptp) Prefs.disableRootFeatures(Prefs.get(this))
     }
 
     private fun stopRoot(process: Process?) {
@@ -344,8 +342,8 @@ class ReceiverService : Service() {
 
     /**
      * Multicast for mDNS. The high-performance lock keeps the receiver reachable with the screen
-     * off up to Android 13; from 14 on it only works with the screen on. Optional root Wi-Fi
-     * protection forces low-latency mode independently of the AirPlay version.
+     * off up to Android 13; from 14 on it only works with the screen on. With root, automatic
+     * Wi-Fi protection forces low-latency mode independently of the AirPlay version.
      */
     @Suppress("DEPRECATION") // WIFI_MODE_FULL_HIGH_PERF: the lock that still works before API 34
     private fun acquireWifiLocks() {

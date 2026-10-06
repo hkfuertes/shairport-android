@@ -58,7 +58,6 @@ public final class ShairportPluginTest {
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("receiver_enabled", enabled);
         settings.put("airplay_2", true);
-        settings.put("wifi_low_latency", false);
         settings.put("server_name", name);
         settings.put("model", model);
         settings.put("playback_mode", "Stereo");
@@ -73,7 +72,7 @@ public final class ShairportPluginTest {
         assert assertions = true;
         if (!assertions) throw new AssertionError("run with java -ea");
         statusBecomesEntitiesAndForm();
-        wifiLowLatencySettingsAndRootRefusal();
+        automaticWifiAndRootRefusal();
         satellitesToggleAndCount();
         formEditsReachTheApp();
         queuedEditsWinOverAnOlderStatus();
@@ -105,43 +104,25 @@ public final class ShairportPluginTest {
         assert host.saved == null : "unchanged settings are not saved again";
     }
 
-    static void wifiLowLatencySettingsAndRootRefusal() {
+    static void automaticWifiAndRootRefusal() {
         Host host = new Host();
         ShairportPlugin plugin = new ShairportPlugin();
         Map<String, Object> settings = form(true, "Kitchen", "HomePod mini");
         settings.put("satellites", true);
-        settings.remove("wifi_low_latency"); // saved before the new plugin setting existed
+        settings.put("wifi_low_latency", true); // saved by the previous plugin
         plugin.attach(host, settings);
         String status = STATUS_OK.replace("link_stream_volume=true", "link_stream_volume=true&satellites=true");
         plugin.poll();
-        host.answer(status); // older apps omit wifi_low_latency
-        assert host.saved == null : "a missing app key is not a setting change";
-
-        plugin.poll();
-        host.answer(status.replace("airplay_2=true", "airplay_2=true&wifi_low_latency=true"));
-        assert Boolean.TRUE.equals(host.saved.get("wifi_low_latency")) : host.saved;
-        settings = new LinkedHashMap<>(host.saved);
-        host.saved = null;
-        plugin.poll();
         host.answer(status);
-        assert host.saved == null : "older apps must not clear an enabled Wi-Fi setting";
-
+        assert host.saved == null : "discarding the old toggle needs no app configuration";
         settings.put("wifi_low_latency", false);
         plugin.configure(settings);
-        assert host.last().contains("--es key wifi_low_latency --ez value false") : host.last();
-        host.answer("Broadcast completed: result=-1, data=\"wifi_low_latency\"");
-        assert host.last().endsWith("GET_STATUS") : host.last();
-        host.answer(status.replace("airplay_2=true", "airplay_2=true&wifi_low_latency=false"));
-        assert host.saved == null : "unchanged settings are not saved again";
+        assert host.pending.isEmpty() : "the removed toggle must never reach the app";
 
-        settings.put("wifi_low_latency", true);
-        plugin.configure(settings);
-        assert host.last().contains("--es key wifi_low_latency --ez value true") : host.last();
-        host.answer("Broadcast completed: result=-1, data=\"wifi_low_latency\"");
-        assert host.last().endsWith("GET_STATUS") : host.last();
-        host.answer(status.replace("airplay_2=true", "airplay_2=false&wifi_low_latency=false")); // root refused
+        plugin.poll();
+        host.answer(status.replace("airplay_2=true", "airplay_2=false")); // root refused
         assert Boolean.FALSE.equals(host.saved.get("airplay_2")) : host.saved;
-        assert Boolean.FALSE.equals(host.saved.get("wifi_low_latency")) : host.saved;
+        assert !host.saved.containsKey("wifi_low_latency") : host.saved;
         assert Boolean.TRUE.equals(host.saved.get("satellites")) : host.saved;
         assert Boolean.TRUE.equals(host.saved.get("link_stream_volume")) : host.saved;
         assert host.pending.isEmpty() : "root refusal must not retry or disable unrelated settings";

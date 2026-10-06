@@ -10,7 +10,7 @@ import org.junit.Test
 /** Real shell lifetimes, with fake Wi-Fi/NQPTP commands: never changes the host's radio. */
 class RootScriptTest {
     @Test(timeout = 20000)
-    fun independentFeaturesAndSerializedCleanup() {
+    fun automaticWifiAndSerializedCleanup() {
         val directory = Files.createTempDirectory("shairport-root-").toFile()
         val bin = directory.resolve("bin").apply { mkdirs() }
         val calls = directory.resolve("wifi-calls")
@@ -24,8 +24,8 @@ class RootScriptTest {
         executable("flock", "exec 4<&- 9>&-; exec /usr/bin/flock \"${'$'}@\"")
         val nqptp = executable("libnqptp.so", "echo ready > \"${'$'}NQPTP_SHM_DIRECTORY/nqptp\"; exec sleep 60")
         val processes = mutableListOf<Process>()
-        fun start(airplay2: Boolean, wifi: Boolean): Process = ProcessBuilder(
-            "sh", "-c", rootScript(nqptp.path, directory.path, airplay2, wifi),
+        fun start(airplay2: Boolean): Process = ProcessBuilder(
+            "sh", "-c", rootScript(nqptp.path, directory.path, airplay2),
         ).redirectErrorStream(true).apply {
             environment()["PATH"] = bin.path + ":" + environment()["PATH"]
             environment()["TEST_DIRECTORY"] = directory.path
@@ -45,24 +45,27 @@ class RootScriptTest {
             assertEquals(0, process.exitValue())
         }
         try {
-            // Classic AirPlay/Snapcast can keep the radio awake without any NQPTP.
-            val wifiOnly = start(false, true)
+            // Classic AirPlay/Snapcast automatically protect Wi-Fi without starting NQPTP.
+            val wifiOnly = start(false)
             assertTrue(ready(wifiOnly).contains("$WIFI_MARKER up"))
             assertFalse(directory.resolve("nqptp").exists())
             stop(wifiOnly)
             assertEquals(listOf("force-low-latency-mode enabled", "force-low-latency-mode disabled"), calls.readLines())
             calls.delete()
 
-            // PTP does not silently enable the independent radio option.
-            val ptpOnly = start(true, false)
-            assertTrue(ready(ptpOnly).contains("$NQPTP_MARKER up"))
-            assertFalse(calls.exists())
-            stop(ptpOnly)
+            // AirPlay 2 adds PTP but uses the same automatic Wi-Fi protection.
+            val ptp = start(true)
+            val markers = ready(ptp)
+            assertTrue(markers.contains("$NQPTP_MARKER up"))
+            assertTrue(markers.contains("$WIFI_MARKER up"))
+            stop(ptp)
+            assertEquals(listOf("force-low-latency-mode enabled", "force-low-latency-mode disabled"), calls.readLines())
+            calls.delete()
 
             // A replacement helper must not enable Wi-Fi until the old cleanup finishes.
-            val old = start(true, true)
+            val old = start(true)
             ready(old)
-            val replacement = start(false, true)
+            val replacement = start(false)
             stop(old)
             ready(replacement)
             assertEquals(listOf("force-low-latency-mode enabled", "force-low-latency-mode disabled", "force-low-latency-mode enabled"), calls.readLines())
@@ -71,7 +74,7 @@ class RootScriptTest {
             // Older Androids can fall back to high-performance mode; restore the mode used.
             executable("cmd", "[ \"${'$'}2\" = force-low-latency-mode ] && exit 1; echo \"${'$'}2 ${'$'}3\" >> \"${'$'}TEST_DIRECTORY/wifi-calls\"")
             calls.delete()
-            val older = start(false, true)
+            val older = start(false)
             assertTrue(ready(older).contains("$WIFI_MARKER up"))
             stop(older)
             assertEquals(listOf("force-hi-perf-mode enabled", "force-hi-perf-mode disabled"), calls.readLines())
