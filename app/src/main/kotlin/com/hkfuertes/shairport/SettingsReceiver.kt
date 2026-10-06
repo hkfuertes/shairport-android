@@ -35,7 +35,7 @@ class SettingsReceiver : BroadcastReceiver() {
     /**
      * One URL-encoded line (key=value&...): state (off, idle or playing), mode (airplay2 or
      * classic, while advertised), source, title, artist, album, address, volume (music stream, %)
-     * and every setting's current value.
+     * satellites_count (connected clients), and every setting's current value.
      */
     private fun status(context: Context, preferences: SharedPreferences): String {
         val audio = context.getSystemService(AudioManager::class.java)
@@ -51,6 +51,7 @@ class SettingsReceiver : BroadcastReceiver() {
                 },
             )
             .appendQueryParameter("volume", volume.toString())
+            .appendQueryParameter("satellites_count", EngineStatus.satellites.size.toString())
         mapOf(
             "source" to EngineStatus.source,
             "title" to EngineStatus.title,

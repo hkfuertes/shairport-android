@@ -39,6 +39,10 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
 # (see Headless setup); without root the receiver stays classic AirPlay.
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key airplay_2 --ez value true
+
+# Snapcast satellites; false disables them (restarts the engine)
+adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
+  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key satellites --ez value true
 ```
 
 List keys, types, current values, defaults, and choices with their labels as JSON:
@@ -48,7 +52,7 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
   -a com.hkfuertes.shairport.LIST_SETTINGS
 ```
 
-The current state as one URL-encoded line: `state` (`off`, `idle` or `playing`), `mode` (`airplay2` or `classic`, while advertised), `source`, `title`, `artist`, `album`, `address`, `volume` (music stream, %) and every setting's value:
+The current state as one URL-encoded line: `state` (`off`, `idle` or `playing`), `mode` (`airplay2` or `classic`, while advertised), `source`, `title`, `artist`, `album`, `address`, `volume` (music stream, %), `satellites_count` (connected clients) and every setting's value:
 
 ```sh
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
@@ -83,7 +87,7 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 
 [`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and the app keeps running the receiver. The plugin drives the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
-- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Link Android music volume, Start at boot. They show the app's current values, including changes made in the app itself, and while waiting the status line says whether the receiver runs as AirPlay 2 or classic AirPlay.
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2 (multi-room), Name, Model, Playback mode, Link Android music volume, Satellites (Snapcast), Start at boot. They show the app's current values, including changes made in the app itself. The status line reports the receiver's state and `N satellites connected` (or `Satellites off`), refreshed every 5 s; while waiting it also shows AirPlay 2 or classic AirPlay. The form is static: clients are counted, not listed individually.
 - Home Assistant (Kiosk Satellite's **Settings > ESPHome**: Enable ESPHome and Expose kiosk entities): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
 Install it with **Plugin Manager > Developer Tools > Install from ZIP**, using `shairport-*.zip` from a release or from `build/kiosk-plugin/`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
