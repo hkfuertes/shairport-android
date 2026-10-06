@@ -63,6 +63,7 @@ public final class ShairportPluginTest {
         settings.put("playback_mode", "Stereo");
         settings.put("start_at_boot", false);
         settings.put("link_stream_volume", true);
+        settings.put("satellites", false);
         return settings;
     }
 
@@ -71,6 +72,8 @@ public final class ShairportPluginTest {
         assert assertions = true;
         if (!assertions) throw new AssertionError("run with java -ea");
         statusBecomesEntitiesAndForm();
+        automaticWifiAndRootRefusal();
+        satellitesToggleAndCount();
         formEditsReachTheApp();
         queuedEditsWinOverAnOlderStatus();
         switchStartsAnEnabledReceiverThatIsDown();
@@ -99,6 +102,66 @@ public final class ShairportPluginTest {
         plugin.poll();
         host.answer(STATUS_OK);
         assert host.saved == null : "unchanged settings are not saved again";
+    }
+
+    static void automaticWifiAndRootRefusal() {
+        Host host = new Host();
+        ShairportPlugin plugin = new ShairportPlugin();
+        Map<String, Object> settings = form(true, "Kitchen", "HomePod mini");
+        settings.put("satellites", true);
+        settings.put("wifi_low_latency", true); // saved by the previous plugin
+        plugin.attach(host, settings);
+        String status = STATUS_OK.replace("link_stream_volume=true", "link_stream_volume=true&satellites=true");
+        plugin.poll();
+        host.answer(status);
+        assert host.saved == null : "discarding the old toggle needs no app configuration";
+        settings.put("wifi_low_latency", false);
+        plugin.configure(settings);
+        assert host.pending.isEmpty() : "the removed toggle must never reach the app";
+
+        plugin.poll();
+        host.answer(status.replace("airplay_2=true", "airplay_2=false")); // root refused
+        assert Boolean.FALSE.equals(host.saved.get("airplay_2")) : host.saved;
+        assert !host.saved.containsKey("wifi_low_latency") : host.saved;
+        assert Boolean.TRUE.equals(host.saved.get("satellites")) : host.saved;
+        assert Boolean.TRUE.equals(host.saved.get("link_stream_volume")) : host.saved;
+        assert host.pending.isEmpty() : "root refusal must not retry or disable unrelated settings";
+    }
+
+    static void satellitesToggleAndCount() {
+        Host host = new Host();
+        ShairportPlugin plugin = new ShairportPlugin();
+        plugin.attach(host, form(true, "Kitchen", "HomePod mini"));
+        String status = STATUS_OK.replace("link_stream_volume=true",
+            "link_stream_volume=true&satellites=true&satellites_count=2");
+        plugin.poll();
+        host.answer(status);
+        assert Boolean.TRUE.equals(host.saved.get("satellites"));
+        assert host.status.endsWith("2 satellites connected") : host.status;
+        host.saved = null;
+        for (String count : Arrays.asList("1", "0")) {
+            plugin.poll();
+            host.answer(status.replace("satellites_count=2", "satellites_count=" + count));
+            assert host.status.endsWith(count + ("1".equals(count) ? " satellite connected" : " satellites connected")) : host.status;
+            assert host.saved == null : "the count is status, not a form setting";
+        }
+        Map<String, Object> next = form(true, "Kitchen", "HomePod mini");
+        plugin.configure(next);
+        assert host.last().contains("--es key satellites --ez value false") : host.last();
+        host.answer("Broadcast completed: result=-1, data=\"satellites\"");
+        assert host.last().endsWith("GET_STATUS");
+        host.answer(status.replace("satellites=true", "satellites=false").replace("satellites_count=2", "satellites_count=0"));
+        assert host.status.endsWith("Satellites off") : host.status;
+        next.put("satellites", true);
+        plugin.configure(next);
+        assert host.last().contains("--es key satellites --ez value true") : host.last();
+        host.answer("Broadcast completed: result=-1, data=\"satellites\"");
+        host.answer(status.replace("satellites_count=2", "satellites_count=0"));
+        assert host.status.endsWith("0 satellites connected") : host.status;
+        for (String state : Arrays.asList("idle", "off")) {
+            assert ShairportPlugin.summary(ShairportPlugin.query("state=" + state + "&satellites=true&satellites_count=2"))
+                .endsWith("2 satellites connected") : state;
+        }
     }
 
     static void formEditsReachTheApp() {

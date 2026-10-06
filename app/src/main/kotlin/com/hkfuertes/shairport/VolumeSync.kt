@@ -10,8 +10,8 @@ import java.net.InetAddress
 import kotlin.math.roundToInt
 
 /**
- * Shairport's metadata over loopback UDP ([port]). When [Prefs.LINK_STREAM_VOLUME] is on,
- * Shairport ignores volume control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC. Play state (`snam`,
+ * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume], Shairport ignores volume
+ * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which satellites follow (EngineService). Play state (`snam`,
  * `pbeg`, `pend`, `disc`) and the track (`core` `minm`, `asar`, `asal`) go to [EngineStatus].
  *
  * ponytail: one-way on purpose. Android -> sender is left out until Shairport's AirPlay 2 remote
@@ -58,7 +58,7 @@ class VolumeSync(context: Context) {
     }
 
     private fun applySenderVolume(airplayVolume: Double) {
-        if (!preferences.getBoolean(Prefs.LINK_STREAM_VOLUME, true)) return
+        if (!Prefs.linkedVolume(preferences)) return
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val index = toIndex(airplayVolume, max)
         if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) != index) {

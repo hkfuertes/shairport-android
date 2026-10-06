@@ -1,11 +1,16 @@
 package com.hkfuertes.shairport
 
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.os.Message
 import android.os.Messenger
@@ -15,6 +20,7 @@ import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /**
  * Shairport Sync as a JNI library (native/patches/shairport-sync/0008), in the :engine process.
@@ -30,6 +36,40 @@ object Engine {
 
     /** Asks Shairport to exit cleanly (mDNS goodbyes, AAudio closed), which ends the process. */
     @JvmStatic external fun stop()
+
+    /** Patch 0009: hand every buffer AAudio plays to [satelliteAudio]. */
+    @JvmStatic private external fun relayAudio(on: Boolean)
+
+    @Volatile private var satellites: Satellites? = null
+
+    /** Snapcast server for satellites, for the rest of this process (one engine run). */
+    fun startSatellites() {
+        satellites = runCatching { Satellites(log = { Log.i(TAG, it) }, changed = ::reportSatellites) }
+            .onFailure { Log.e(TAG, "Satellites: could not listen on ${Satellites.PORT}", it) }
+            .getOrNull() ?: return
+        relayAudio(true)
+        // Snapdroid only takes a server whose name starts with "Snapcast".
+        mdnsPublish("_snapcast._tcp", "Snapcast".toByteArray(), Satellites.PORT, emptyArray())
+    }
+
+    /** Snapcast volume for every satellite, in percent (linked volume: EngineService). */
+    fun satelliteVolume(percent: Int) {
+        satellites?.volume = percent
+    }
+
+    private fun reportSatellites(connected: List<Pair<String, String>>) {
+        val data = Bundle().apply {
+            putStringArrayList(EngineService.KEY_ADDRESSES, ArrayList(connected.map { it.first }))
+            putStringArrayList(EngineService.KEY_HELLOS, ArrayList(connected.map { it.second }))
+        }
+        runCatching { status?.send(Message.obtain(null, EngineService.MSG_SATELLITES).apply { this.data = data }) }
+    }
+
+    /** Patch 0009, on Shairport's player thread: see [Satellites.audio]. */
+    @JvmStatic
+    fun satelliteAudio(pcm: ByteArray, rate: Int, heardAt: Long) {
+        satellites?.audio(pcm, rate, heardAt)
+    }
 
     internal lateinit var nsd: NsdManager
     internal var status: Messenger? = null
@@ -110,6 +150,8 @@ object Engine {
 
 /** Hosts [Engine] in the :engine process: ReceiverService binds it to start and unbinds to stop. */
 class EngineService : Service() {
+    private var volumeReceiver: BroadcastReceiver? = null
+
     override fun onBind(intent: Intent): IBinder {
         if (started) { // a stopping engine's process was reused: never run Shairport twice in one
             Log.e(TAG, "Engine process reused; restarting it")
@@ -119,12 +161,41 @@ class EngineService : Service() {
         Engine.nsd = getSystemService(NsdManager::class.java)
         Engine.status = messenger(intent)
         Os.setenv("NQPTP_SHM_DIRECTORY", intent.getStringExtra(EXTRA_SHM_DIRECTORY).orEmpty(), true)
+        if (intent.getBooleanExtra(EXTRA_SATELLITES, false)) {
+            Engine.startSatellites()
+            if (intent.getBooleanExtra(EXTRA_LINKED_VOLUME, false)) followMusicVolume()
+        }
         val arguments = requireNotNull(intent.getStringArrayExtra(EXTRA_ARGUMENTS))
         Thread({ Engine.run(arguments) }, "shairport").start()
         return Binder()
     }
 
+    /**
+     * Linked volume: Shairport plays at full scale and VolumeSync sets this device's music volume
+     * from the sender's. Satellites follow that volume, wherever it is set (sender, keys, Home Assistant).
+     */
+    private fun followMusicVolume() {
+        val audio = getSystemService(AudioManager::class.java)
+        val update = {
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            Engine.satelliteVolume((audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max).roundToInt())
+        }
+        update()
+        // Not in the SDK, but AudioService sends it on every volume change (a protected system broadcast).
+        val filter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) = update()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(receiver, filter)
+        }
+        volumeReceiver = receiver
+    }
+
     override fun onDestroy() {
+        volumeReceiver?.let { unregisterReceiver(it) }
         if (started) Engine.stop() // Shairport's exit ends this process
         super.onDestroy()
     }
@@ -141,8 +212,15 @@ class EngineService : Service() {
         const val EXTRA_ARGUMENTS = "arguments"
         const val EXTRA_SHM_DIRECTORY = "shm_directory"
         const val EXTRA_STATUS = "status"
+        const val EXTRA_SATELLITES = "satellites"
+        /** Satellites play at this device's music volume (the PCM is at full scale). */
+        const val EXTRA_LINKED_VOLUME = "linked_volume"
         /** arg1: advertised at all; arg2: as AirPlay 2 (`_airplay._tcp`). */
         const val MSG_ADVERTISED = 1
+        /** data: [KEY_ADDRESSES] and [KEY_HELLOS] of the connected satellites. */
+        const val MSG_SATELLITES = 2
+        const val KEY_ADDRESSES = "addresses"
+        const val KEY_HELLOS = "hellos"
         private const val TAG = "Shairport"
         private var started = false
     }

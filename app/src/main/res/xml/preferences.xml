@@ -8,6 +8,7 @@
             android:summary="@string/receiver_enabled_summary"
             android:title="@string/receiver_enabled_title" />
         <SwitchPreference
+            android:enabled="false"
             android:key="airplay_2"
             android:summary="@string/airplay_2_summary"
             android:title="@string/airplay_2_title" />
@@ -40,6 +41,19 @@
             android:key="link_stream_volume"
             android:summary="@string/link_stream_volume_summary"
             android:title="@string/link_stream_volume_title" />
+        <SwitchPreference
+            android:key="satellites"
+            android:summary="@string/satellites_summary"
+            android:title="@string/satellites_title" />
+        <!-- Summary: MainActivity, from EngineStatus. -->
+        <Preference
+            android:key="satellites_list"
+            android:persistent="false"
+            android:title="@string/satellites_list_title">
+            <intent
+                android:targetClass="com.hkfuertes.shairport.SatellitesActivity"
+                android:targetPackage="com.hkfuertes.shairport" />
+        </Preference>
     </PreferenceCategory>
 
     <PreferenceCategory

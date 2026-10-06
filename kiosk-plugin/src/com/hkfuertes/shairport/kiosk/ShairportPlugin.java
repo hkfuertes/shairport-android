@@ -74,12 +74,16 @@ public final class ShairportPlugin implements KioskPlugin {
     synchronized void attach(PluginHost host, Map<String, Object> settings) {
         this.host = host;
         this.settings = new LinkedHashMap<>(settings);
+        // Wi-Fi protection is automatic now; discard the old saved toggle.
+        this.settings.remove("wifi_low_latency");
     }
 
     /** A form edit (KS UI or Remote Admin): send each changed value to the app. */
     @Override
     public synchronized void configure(Map<String, Object> next) {
         if (host == null) return;
+        next = new LinkedHashMap<>(next);
+        next.remove("wifi_low_latency");
         for (Map.Entry<String, Object> entry : next.entrySet()) {
             if (!Objects.equals(entry.getValue(), settings.get(entry.getKey()))) {
                 queue.add(set(entry.getKey(), entry.getValue()));
@@ -214,16 +218,23 @@ public final class ShairportPlugin implements KioskPlugin {
     }
 
     static String summary(Map<String, String> app) {
+        String satellites = "";
+        if ("true".equals(app.get("satellites"))) {
+            String count = app.getOrDefault("satellites_count", "0");
+            satellites = " · " + count + ("1".equals(count) ? " satellite connected" : " satellites connected");
+        } else if (app.containsKey("satellites")) {
+            satellites = " · Satellites off";
+        }
         String name = app.get("server_name");
         if ("playing".equals(app.get("state"))) {
             String track = join(" - ", app.get("artist"), app.get("title"));
-            return "Playing from " + app.get("source") + (track.isEmpty() ? "" : ": " + track);
+            return "Playing from " + app.get("source") + (track.isEmpty() ? "" : ": " + track) + satellites;
         }
         if ("idle".equals(app.get("state"))) {
             return "Waiting for AirPlay as \"" + name + "\"" + (app.containsKey("address") ? " on " + app.get("address") : "")
-                + ("airplay2".equals(app.get("mode")) ? " (AirPlay 2)" : "classic".equals(app.get("mode")) ? " (classic AirPlay)" : "");
+                + ("airplay2".equals(app.get("mode")) ? " (AirPlay 2)" : "classic".equals(app.get("mode")) ? " (classic AirPlay)" : "") + satellites;
         }
-        return "true".equals(app.get("receiver_enabled")) ? "Receiver not running" : "Receiver off";
+        return ("true".equals(app.get("receiver_enabled")) ? "Receiver not running" : "Receiver off") + satellites;
     }
 
     static String[] status() {

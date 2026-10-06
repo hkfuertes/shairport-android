@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 13:30:00 +0200
+Subject: [PATCH] android: relay played audio to the app's Snapcast satellites
+
+The aaudio backend's play() hands each timed buffer to android.c before its
+blocking write, with the time Shairport says its first frame is heard
+(should_be_time: the sender's timeline, AirPlay 2's PTP included). android.c
+passes it to Engine.satelliteAudio() on Java's clock (System.nanoTime), where
+the app's Snapcast server sends it to its clients stamped with that time.
+flush() (pause, skip, stop) hands over an empty buffer: clients drop theirs.
+
+The AAudio buffer now holds the whole desired length
+(audio_backend_buffer_desired_length_in_seconds): that is how far ahead
+satellites get the audio, and the app asks for 1 s when it runs them.
+
+Off unless the app calls Engine.relayAudio(true). A thread attaches to the JVM
+once (the player thread; a flush may come from another) and is detached by a
+pthread key destructor when it exits.
+
+Upstream: not submitted (Android only)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ android.c      | 58 ++++++++++++++++++++++++++++++++++++++++++++++++--
+ audio_aaudio.c | 19 ++++++++++++-----
+ 2 files changed, 70 insertions(+), 7 deletions(-)
+
+diff --git a/android.c b/android.c
+index 75513ce..468fbe2 100644
+--- a/android.c
++++ b/android.c
+@@ -15,6 +15,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <time.h>
+ #include <unistd.h>
+ 
+ #include "common.h"
+@@ -26,10 +27,18 @@ extern volatile sig_atomic_t exit_status; // utilities/exit.c
+ 
+ static JavaVM *java_vm;
+ static jclass engine_class;
+-static jmethodID publish_method, unpublish_method;
++static jmethodID publish_method, unpublish_method, relay_method;
++static pthread_key_t relay_thread;
++static volatile int relaying;
+ static pthread_t log_thread;
+ static int log_forwarding;
+ 
++// The player thread stays attached between buffers (android_relay); ART aborts the process if a
++// thread exits attached. Key destructors also run on 0002's cancellation (pthread_exit).
++static void detach_relay_thread(__attribute__((unused)) void *env) {
++  (*java_vm)->DetachCurrentThread(java_vm);
++}
++
+ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
+   JNIEnv *env;
+   java_vm = vm;
+@@ -43,7 +52,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
+   publish_method =
+       (*env)->GetStaticMethodID(env, engine, "mdnsPublish", "(Ljava/lang/String;[BI[[B)V");
+   unpublish_method = (*env)->GetStaticMethodID(env, engine, "mdnsUnpublish", "()V");
+-  return publish_method && unpublish_method ? JNI_VERSION_1_6 : JNI_ERR;
++  relay_method = (*env)->GetStaticMethodID(env, engine, "satelliteAudio", "([BIJ)V");
++  if (pthread_key_create(&relay_thread, detach_relay_thread) != 0)
++    return JNI_ERR;
++  return publish_method && unpublish_method && relay_method ? JNI_VERSION_1_6 : JNI_ERR;
+ }
+ 
+ // App processes have stdout and stderr on /dev/null; Shairport logs to stderr.
+@@ -97,6 +109,48 @@ JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_stop(__attribute__((u
+   exit_request(EXIT_SUCCESS);
+ }
+ 
++// Satellites (Engine.satelliteAudio): off unless the app runs its Snapcast server.
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_relayAudio(
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jboolean on) {
++  relaying = on;
++}
++
++static int64_t now_ns(clockid_t clock) {
++  struct timespec now;
++  clock_gettime(clock, &now);
++  return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
++}
++
++// From the aaudio backend's play(), on the player thread: 2-channel S16 frames, the first heard
++// at playtime (Shairport's clock). Java gets that time on its own clock, System.nanoTime().
++// No frames: a flush (pause, skip, stop; maybe from another thread), satellites drop theirs.
++void android_relay(const void *buf, int frames, int rate, uint64_t playtime) {
++  if (!relaying)
++    return;
++  int64_t heard_at = (int64_t)(playtime - get_absolute_time_in_ns()) + now_ns(CLOCK_MONOTONIC);
++  JNIEnv *env = NULL;
++  if ((*java_vm)->GetEnv(java_vm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
++    if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) != JNI_OK)
++      return;
++    pthread_setspecific(relay_thread, env); // detach_relay_thread() when the thread exits
++  }
++  if (env == NULL)
++    return;
++  jsize length = frames * 4;
++  jbyteArray pcm = (*env)->NewByteArray(env, length);
++  if (pcm != NULL) {
++    if (length > 0)
++      (*env)->SetByteArrayRegion(env, pcm, 0, length, (const jbyte *)buf);
++    (*env)->CallStaticVoidMethod(env, engine_class, relay_method, pcm, (jint)rate,
++                                 (jlong)heard_at);
++    (*env)->DeleteLocalRef(env, pcm); // never back in Java to free it: local refs would pile up
++  }
++  if ((*env)->ExceptionCheck(env)) {
++    (*env)->ExceptionDescribe(env);
++    (*env)->ExceptionClear(env);
++  }
++}
++
+ // mDNS backend "android": Engine.mdnsPublish() registers each service with NsdManager, which has
+ // no TXT update, so a publish replaces the service of the same type.
+ 
+diff --git a/audio_aaudio.c b/audio_aaudio.c
+index b459034..a4ab3fc 100644
+--- a/audio_aaudio.c
++++ b/audio_aaudio.c
+@@ -78,6 +78,9 @@ static int32_t rate, channels;
+ static int running;
+ static int64_t frames_written;
+ 
++// android.c: hands the frames to the app's Snapcast server (satellites) when it runs.
++void android_relay(const void *buf, int frames, int rate, uint64_t playtime);
++
+ static const char *result_text(aaudio_result_t result) {
+   return p_AAudio_convertResultToText ? p_AAudio_convertResultToText(result) : "?";
+ }
+@@ -119,9 +122,11 @@ static int open_stream(void) {
+   p_AAudioStreamBuilder_setSampleRate(builder, rate);
+   p_AAudioStreamBuilder_setChannelCount(builder, channels);
+   p_AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
+-  // ponytail: ~0.37 s at 44.1 kHz; the deep buffer rides out scheduling hiccups of a root
+-  // process, and delay() reports it exactly, so it costs latency budget, not sync.
+-  p_AAudioStreamBuilder_setBufferCapacityInFrames(builder, 16384);
++  // ponytail: the whole desired length (0.5 s; 1 s with satellites, their head start). The deep
++  // buffer rides out scheduling hiccups of a root process, and delay() reports it exactly, so
++  // it costs latency budget, not sync.
++  p_AAudioStreamBuilder_setBufferCapacityInFrames(
++      builder, (int32_t)(config.audio_backend_buffer_desired_length * rate));
+   if (p_AAudioStreamBuilder_setUsage)
+     p_AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_MEDIA);
+   if (p_AAudioStreamBuilder_setContentType)
+@@ -181,8 +186,11 @@ static int configure(int32_t requested_encoded_format, char **channel_map) {
+ }
+ 
+ static int play(void *buf, int frames, __attribute__((unused)) int sample_type,
+-                __attribute__((unused)) uint32_t timestamp,
+-                __attribute__((unused)) uint64_t playtime) {
++                __attribute__((unused)) uint32_t timestamp, uint64_t playtime) {
++  // Before the write blocks, so satellites get the frames as early as AAudio does. Timed
++  // frames only: untimed ones are silence while waiting for the first frame.
++  if (playtime != 0 && frames > 0)
++    android_relay(buf, frames, rate, playtime);
+   int response = 0;
+   pthread_mutex_lock_and_cleanup_push(&aaudio_mutex);
+   if (stream == NULL && current_encoded_output_format != 0)
+@@ -234,6 +242,7 @@ static int delay(long *the_delay) {
+ // ponytail: close instead of pause+flush, so frames_written and the timestamp position both
+ // restart at zero; reopening costs a few ms per flush (track skip, pause).
+ static void flush(void) {
++  android_relay(NULL, 0, rate, 0); // satellites drop what they hold too
+   pthread_mutex_lock_and_cleanup_push(&aaudio_mutex);
+   close_stream();
+   pthread_cleanup_pop(1);

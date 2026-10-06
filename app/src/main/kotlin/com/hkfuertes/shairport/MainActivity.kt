@@ -31,7 +31,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             checkRoot()
             true
         }
-        // Only AirPlay 2 needs root: the switch turns on once su is granted (Magisk may prompt).
+        // AirPlay 2 turns on only after su is granted (Magisk may prompt).
         findPreference(Prefs.AIRPLAY_2).setOnPreferenceChangeListener { preference, value ->
             if (value != true) return@setOnPreferenceChangeListener true
             checkRoot { (preference as SwitchPreference).isChecked = true }
@@ -48,15 +48,13 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
 
         requestNotificationPermission()
         if (preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) ReceiverService.start(this)
-        // Asking su without need would make Magisk prompt users who never wanted AirPlay 2.
-        if (preferences.getBoolean(Prefs.AIRPLAY_2, false)) checkRoot()
-        else rootPreference.setSummary(R.string.root_access_not_requested)
     }
 
     override fun onResume() {
         super.onResume()
         EngineStatus.addListener(statusListener)
         refreshStatus()
+        checkRoot() // also re-check permission after returning from Magisk
     }
 
     override fun onPause() {
@@ -106,16 +104,23 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             "status_playback",
             EngineStatus.source?.let { getString(R.string.status_playing, it) } ?: getString(R.string.status_idle),
         )
+        findPreference(PREF_SATELLITES_LIST).summary =
+            if (preferences.getBoolean(Prefs.SATELLITES, false)) getString(R.string.satellites_list_summary, EngineStatus.satellites.size)
+            else getString(R.string.satellites_off)
     }
 
     // Configuration changes are applied by the running service itself (it listens too).
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == Prefs.AIRPLAY_2) {
+            (findPreference(key) as SwitchPreference).isChecked = sharedPreferences.getBoolean(key, false)
+        }
         when (key) {
             Prefs.AIRPLAY_2 -> {
                 refreshModel()
                 refreshStatus()
             }
             Prefs.MODEL -> refreshModel()
+            Prefs.SATELLITES -> refreshStatus()
             // The tile, the notification's "Stop" or adb may change it while this screen is open.
             Prefs.RECEIVER_ENABLED -> (findPreference(Prefs.RECEIVER_ENABLED) as SwitchPreference).isChecked =
                 sharedPreferences.getBoolean(Prefs.RECEIVER_ENABLED, true)
@@ -126,6 +131,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun checkRoot(onGranted: (() -> Unit)? = null) {
         if (rootCheckRunning) return
         rootCheckRunning = true
+        findPreference(Prefs.AIRPLAY_2).isEnabled = false
         rootPreference.isEnabled = false
         rootPreference.setSummary(R.string.root_access_checking)
         Thread({
@@ -137,6 +143,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     private fun applyRootResult(root: Root, onGranted: (() -> Unit)?) {
         if (isFinishing || isDestroyed) return
         rootCheckRunning = false
+        findPreference(Prefs.AIRPLAY_2).isEnabled = root == Root.GRANTED
         rootPreference.isEnabled = root != Root.GRANTED // nothing left to request once granted
         rootPreference.setSummary(
             when (root) {
@@ -146,7 +153,10 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
             },
         )
         if (root == Root.GRANTED) onGranted?.invoke()
-        else if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
+        else {
+            Prefs.disableRootFeatures(preferences)
+            if (onGranted != null) Toast.makeText(this, R.string.root_required, Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
@@ -202,6 +212,7 @@ class MainActivity : PreferenceActivity(), SharedPreferences.OnSharedPreferenceC
     companion object {
         private const val PREF_ROOT_ACCESS = "root_access"
         private const val PREF_STATUS = "status"
+        private const val PREF_SATELLITES_LIST = "satellites_list"
         private const val ROOT_CHECK_TIMEOUT_SECONDS = 30L
     }
 }

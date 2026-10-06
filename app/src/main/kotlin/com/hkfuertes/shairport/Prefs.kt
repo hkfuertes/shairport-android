@@ -18,6 +18,8 @@ object Prefs {
     const val PLAYBACK_MODE = "playback_mode"
     /** When false, AirPlay volume stays inside Shairport and leaves Android's music stream alone. */
     const val LINK_STREAM_VOLUME = "link_stream_volume"
+    /** Snapcast server for satellites (Satellites.kt), on ports 1704 and 1705. */
+    const val SATELLITES = "satellites"
 
     /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
     const val GENERIC_MODEL = "ShairportSync"
@@ -31,7 +33,11 @@ object Prefs {
         START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
         LINK_STREAM_VOLUME to true,
+        SATELLITES to false,
     )
+
+    /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Snapcast volume. */
+    fun linkedVolume(preferences: SharedPreferences): Boolean = preferences.getBoolean(LINK_STREAM_VOLUME, true)
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */
     fun choices(context: Context): Map<String, List<String>> = mapOf(
@@ -57,6 +63,11 @@ object Prefs {
             editor.commit()
         }
         return preferences
+    }
+
+    /** Root refusal must not leave AirPlay 2 claiming it is enabled. */
+    fun disableRootFeatures(preferences: SharedPreferences) {
+        preferences.edit().putBoolean(AIRPLAY_2, false).commit()
     }
 
     /** Android's user-visible device name (Settings > About phone), e.g. "Xiaomi Pocophone F1". */
