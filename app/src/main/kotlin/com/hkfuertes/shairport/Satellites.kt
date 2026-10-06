@@ -32,9 +32,12 @@ class Satellites(
     private val changed: (List<Pair<String, String>>) -> Unit = {},
 ) : AutoCloseable {
     private val server = listen(port)
-    private val control = listen(controlPort)
+    private val control = try { listen(controlPort) } catch (error: Exception) {
+        server.close()
+        throw error
+    }
     private val clients = CopyOnWriteArrayList<Client>()
-    /** Keeps each client's messages in protocol order: settings, codec header, then chunks. */
+    /** Serializes chunking, resets and status snapshots, and keeps protocol messages in order. */
     private val lock = Any()
     @Volatile private var codecHeader = codecHeader(DEFAULT_RATE)
 
@@ -49,7 +52,7 @@ class Satellites(
             clients.forEach { if (it.ready) it.send(SERVER_SETTINGS, settings(percent)) }
         }
 
-    // Chunking: only the player thread (audio) touches these.
+    // Chunking and flush share lock: flush may come from another thread.
     private var rate = DEFAULT_RATE
     private var chunk = ByteArray(chunkBytes(rate))
     private var filled = 0
@@ -77,9 +80,9 @@ class Satellites(
      * (System.nanoTime()), about 1 s ahead (the AAudio buffer ReceiverService asks for).
      * No frames: a flush (pause, skip, stop), maybe from another thread.
      */
-    fun audio(pcm: ByteArray, rate: Int, heardAt: Long) {
-        if (pcm.isEmpty()) return flush()
-        if (rate <= 0) return
+    fun audio(pcm: ByteArray, rate: Int, heardAt: Long) = synchronized(lock) {
+        if (pcm.isEmpty()) return@synchronized flush()
+        if (rate <= 0) return@synchronized
         if (rate != this.rate) {
             this.rate = rate
             chunk = ByteArray(chunkBytes(rate))
@@ -97,7 +100,7 @@ class Satellites(
         // carry a stale time (Shairport skipping frames at the start), the next ones don't.
         if (!continues) {
             filled = 0
-            return
+            return@synchronized
         }
         var offset = 0
         while (offset < pcm.size) {
@@ -115,11 +118,10 @@ class Satellites(
         }
     }
 
-    /**
-     * Clients drop what they hold: snapclient restarts its stream on a codec header. The chunker
-     * needs nothing: the next buffer starts a new timeline anyway.
-     */
+    /** Drop our partial chunk too: the next timestamps may still be contiguous after a flush. */
     private fun flush() = synchronized(lock) {
+        filled = 0
+        expected = 0L
         clients.forEach { if (it.ready) it.send(CODEC_HEADER, codecHeader) }
     }
 
@@ -138,9 +140,10 @@ class Satellites(
         @Volatile var hello: String? = null
         val ready get() = hello != null
 
-        // ponytail: no read timeout. An ESP32 only sends Time while it receives audio, and a
-        // vanished client is found once audio flows (its queue fills).
+        // ponytail: silent handshake reads time out; after Hello an ESP32 may be idle indefinitely.
+        // A vanished handshaken client is found once audio flows (its queue fills).
         fun start() {
+            socket.soTimeout = HELLO_TIMEOUT_MS
             socket.tcpNoDelay = true
             clients += this
             writer = thread(name = "satellite-write", isDaemon = true) { runCatching { write() }; close() }
@@ -178,6 +181,7 @@ class Satellites(
                     // codec header: from then on, chunks.
                     HELLO -> {
                         val json = String(payload, Charsets.UTF_8).dropWhile { it != '{' }
+                        socket.soTimeout = 0
                         log("Satellite $name connected: $json")
                         synchronized(lock) {
                             send(SERVER_SETTINGS, settings(volume), refersTo = id)
@@ -208,7 +212,9 @@ class Satellites(
         }
     }
 
-    private fun report() = changed(clients.mapNotNull { client -> client.hello?.let { client.address to it } })
+    private fun report() = synchronized(lock) {
+        changed(clients.mapNotNull { client -> client.hello?.let { client.address to it } })
+    }
 
     private class Message(val type: Int, val refersTo: Int, val payload: ByteArray)
 
@@ -232,14 +238,20 @@ class Satellites(
         private const val MAX_JUMP_NS = 1_000_000L // stuffing moves a buffer by one frame, ~23 us
         private const val QUEUE_LENGTH = 50 // ~1 s of chunks; snapclient reconnects after 2 s without a Time reply
         private const val MAX_PAYLOAD = 1 shl 20
+        private const val HELLO_TIMEOUT_MS = 5000
 
         // Same bufferMs and latency every time: a change would make clients resync.
         private fun settings(volume: Int) = """{"bufferMs":$BUFFER_MS,"latency":0,"muted":false,"volume":$volume}"""
             .toByteArray().let { le(4 + it.size).putInt(it.size).put(it).array() }
 
-        private fun listen(port: Int) = ServerSocket().apply {
-            reuseAddress = true
-            bind(InetSocketAddress(port))
+        private fun listen(port: Int) = ServerSocket().also { socket ->
+            try {
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress(port))
+            } catch (error: Exception) {
+                socket.close()
+                throw error
+            }
         }
 
         private fun accept(server: ServerSocket, handle: (Socket) -> Unit) {

@@ -8,12 +8,15 @@ import com.hkfuertes.shairport.Satellites.Companion.SERVER_SETTINGS
 import com.hkfuertes.shairport.Satellites.Companion.TIME
 import com.hkfuertes.shairport.Satellites.Companion.WIRE_CHUNK
 import java.io.DataInputStream
+import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,9 +83,18 @@ class SatellitesTest {
                 }
                 assertEquals(resumed / 1000 - BUFFER_MS * 1000, timestamp(read(input)))
 
-                // A flush (no frames): the codec header again, so clients drop what they hold.
+                // Flush also drops our partial chunk, even if the next timestamps are contiguous.
                 satellites.audio(ByteArray(0), 0, 0)
                 assertEquals(CODEC_HEADER, read(input).type)
+                val afterFlush = heardAt + 352 * 1_000_000_000L / 44100
+                repeat(4) {
+                    satellites.audio(ByteArray(352 * 4) { 9 }, 44100, heardAt)
+                    heardAt += 352 * 1_000_000_000L / 44100
+                }
+                val fresh = read(input)
+                assertEquals(WIRE_CHUNK, fresh.type)
+                assertTrue("pre-flush PCM survived", fresh.payload.array().drop(12).all { it == 9.toByte() })
+                assertEquals(afterFlush / 1000 - BUFFER_MS * 1000, timestamp(fresh))
 
                 // Linked volume: new settings, unasked, with the same buffer (no resync).
                 satellites.volume = 40
@@ -97,6 +109,77 @@ class SatellitesTest {
             Socket("127.0.0.1", satellites.controlPort).use { control ->
                 control.soTimeout = 300
                 assertTrue(runCatching { control.getInputStream().read() }.exceptionOrNull() is SocketTimeoutException)
+            }
+        }
+    }
+
+    @Test
+    fun reportsCannotOvertakeEachOther() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val calls = AtomicInteger()
+        val reports = LinkedBlockingQueue<Int>()
+        Satellites(port = 0, controlPort = 0, changed = { snapshot ->
+            if (calls.incrementAndGet() == 1) {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+            reports.put(snapshot.size)
+        }).use { satellites ->
+            try {
+                Socket("127.0.0.1", satellites.port).use { a ->
+                    a.soTimeout = 5000
+                    a.getOutputStream().write(message(HELLO, 1, 0, withLength("""{"HostName":"A"}""")))
+                    val inputA = DataInputStream(a.getInputStream())
+                    assertEquals(SERVER_SETTINGS, read(inputA).type)
+                    assertEquals(CODEC_HEADER, read(inputA).type)
+                    assertTrue(entered.await(5, TimeUnit.SECONDS))
+                    Socket("127.0.0.1", satellites.port).use { b ->
+                        b.soTimeout = 5000
+                        b.getOutputStream().write(message(HELLO, 2, 0, withLength("""{"HostName":"B"}""")))
+                        val first = reports.poll(250, TimeUnit.MILLISECONDS)
+                        release.countDown()
+                        val inputB = DataInputStream(b.getInputStream())
+                        assertEquals(SERVER_SETTINGS, read(inputB).type)
+                        assertEquals(CODEC_HEADER, read(inputB).type)
+                        val delivered = mutableListOf<Int>()
+                        first?.let { delivered += it }
+                        while (delivered.size < 2) delivered += checkNotNull(reports.poll(5, TimeUnit.SECONDS))
+                        assertEquals(listOf(1, 2), delivered)
+                    }
+                }
+            } finally {
+                release.countDown()
+            }
+        }
+    }
+
+    @Test
+    fun failedControlBindReleasesAudioPort() {
+        ServerSocket(0).use { occupied ->
+            val port = ServerSocket(0).use { it.localPort }
+            assertTrue(runCatching { Satellites(port, occupied.localPort).close() }.isFailure)
+            ServerSocket(port).use { assertEquals(port, it.localPort) }
+        }
+    }
+
+    @Test
+    fun onlyConnectionsWithoutHelloTimeOut() {
+        Satellites(port = 0, controlPort = 0).use { satellites ->
+            Socket("127.0.0.1", satellites.port).use { ready ->
+                ready.soTimeout = 8000
+                val output = ready.getOutputStream()
+                val input = DataInputStream(ready.getInputStream())
+                output.write(message(HELLO, 1, 0, withLength("""{"HostName":"idle ESP32"}""")))
+                assertEquals(SERVER_SETTINGS, read(input).type)
+                assertEquals(CODEC_HEADER, read(input).type)
+                Socket("127.0.0.1", satellites.port).use { pending ->
+                    pending.soTimeout = 8000
+                    assertEquals("unfinished handshake stays open", -1, pending.getInputStream().read())
+                }
+                // The handshaken client has also been idle beyond the timeout: it must still work.
+                output.write(message(TIME, 2, 0, ByteArray(8)))
+                assertEquals(TIME, read(input).type)
             }
         }
     }
