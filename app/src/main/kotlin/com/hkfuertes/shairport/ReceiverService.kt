@@ -266,9 +266,10 @@ class ReceiverService : Service() {
             # One NQPTP at a time: the previous one may still be shutting down (app restart).
             old=${'$'}(pidof libnqptp.so)
             if [ -n "${'$'}old" ]; then kill ${'$'}old; sleep 0.5; kill -9 ${'$'}old; fi 2>/dev/null
-            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still works),
-            # and app Wi-Fi locks can't prevent it on API 34+. Root can, until NQPTP stops.
-            cmd wifi force-hi-perf-mode enabled >/dev/null 2>&1
+            # Screen off = Wi-Fi power save: the POCO stops answering ARP/TCP (mDNS still works)
+            # and satellites starve. App Wi-Fi locks can't prevent it on API 34+, nor can
+            # force-hi-perf-mode once the device dozes; low-latency mode does, until NQPTP stops.
+            cmd wifi force-low-latency-mode enabled >/dev/null 2>&1
             export NQPTP_SHM_DIRECTORY=$shm
             rm -f $shm/nqptp
             $binary 4<&- &
@@ -280,7 +281,7 @@ class ReceiverService : Service() {
             kill ${'$'}nqptp 2>/dev/null
             sleep 1
             kill -9 ${'$'}nqptp 2>/dev/null
-            cmd wifi force-hi-perf-mode disabled >/dev/null 2>&1
+            cmd wifi force-low-latency-mode disabled >/dev/null 2>&1
             echo "$MARKER down"
         """.trimIndent()
     }
@@ -295,6 +296,9 @@ class ReceiverService : Service() {
           service_type = ${if (airplay2) "\"auto\"" else "\"classic\""}; // auto: classic without NQPTP
           airplay_device_id = ${Prefs.deviceId(this)}; // the app has no MAC address to use
           ignore_volume_control = ${quote(if (Prefs.linkedVolume(preferences)) "yes" else "no")}; // linked: VolumeSync maps it onto STREAM_MUSIC
+          volume_range_db = 40; // when Shairport sets the volume: its default 96 dB leaves half the slider near silent
+          // Satellites get the audio this far ahead (the AAudio buffer): room for Wi-Fi hiccups.
+          audio_backend_buffer_desired_length_in_seconds = ${if (preferences.getBoolean(Prefs.SATELLITES, false)) "1.0" else "0.5"};
         };
         metadata = {
           enabled = "yes";

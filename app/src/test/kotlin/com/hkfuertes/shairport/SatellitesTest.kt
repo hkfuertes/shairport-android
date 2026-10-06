@@ -78,6 +78,10 @@ class SatellitesTest {
                     heardAt += 352 * 1_000_000_000L / 44100
                 }
                 assertEquals(resumed / 1000 - BUFFER_MS * 1000, timestamp(read(input)))
+
+                // A flush (no frames): the codec header again, so clients drop what they hold.
+                satellites.audio(ByteArray(0), 0, 0)
+                assertEquals(CODEC_HEADER, read(input).type)
             }
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
 

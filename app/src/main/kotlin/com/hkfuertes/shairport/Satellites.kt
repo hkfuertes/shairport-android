@@ -63,10 +63,12 @@ class Satellites(
 
     /**
      * Shairport's player thread: 16-bit stereo [pcm] whose first frame is heard at [heardAt]
-     * (System.nanoTime()), about 0.4 s ahead (the AAudio buffer).
+     * (System.nanoTime()), about 1 s ahead (the AAudio buffer ReceiverService asks for).
+     * No frames: a flush (pause, skip, stop), maybe from another thread.
      */
     fun audio(pcm: ByteArray, rate: Int, heardAt: Long) {
-        if (rate <= 0 || pcm.isEmpty()) return
+        if (pcm.isEmpty()) return flush()
+        if (rate <= 0) return
         if (rate != this.rate) {
             this.rate = rate
             chunk = ByteArray(chunkBytes(rate))
@@ -100,6 +102,14 @@ class Satellites(
                 filled = 0
             }
         }
+    }
+
+    /**
+     * Clients drop what they hold: snapclient restarts its stream on a codec header. The chunker
+     * needs nothing: the next buffer starts a new timeline anyway.
+     */
+    private fun flush() = synchronized(lock) {
+        clients.forEach { if (it.ready) it.send(CODEC_HEADER, codecHeader) }
     }
 
     override fun close() {
@@ -196,10 +206,10 @@ class Satellites(
         const val CONTROL_PORT = 1705
         /**
          * Clients play a chunk this long after its timestamp. ponytail: it only has to exceed the
-         * real lead (~0.4 s, the AAudio buffer); an ESP32 sizes its queue from it and a WROOM
-         * module holds ~758 ms.
+         * real lead (~1 s, the AAudio buffer); an ESP32 sizes its queue from it, so it needs
+         * PSRAM (a WROOM module holds ~758 ms).
          */
-        const val BUFFER_MS = 700L
+        const val BUFFER_MS = 1500L
         const val CODEC_HEADER = 1
         const val WIRE_CHUNK = 2
         const val SERVER_SETTINGS = 3

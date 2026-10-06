@@ -10,7 +10,7 @@ The Dockerfile's `engine-src` stage applies each directory's patches, in file-na
 - `0006`: configurable `general.model`.
 - `0007`: `aaudio` output backend (`--with-aaudio`): plays through AAudio (`libaaudio.so`, loaded at run time) and reports the real output delay from `AAudioStream_getTimestamp()`, so Shairport keeps sync as with ALSA.
 - `0008`: Shairport Sync as the app's JNI library (`android.c`: `main()` becomes `shairport_main()`, stderr goes to logcat, the process ends with `_exit()` after Shairport's own cleanup) and the `android` mDNS backend, which registers the services with the app's `NsdManager`. `get_device_id()` no longer waits 10 s for a MAC address, which an app can never read.
-- `0009`: the `aaudio` backend hands every timed buffer, with the time Shairport says it is heard, to the app's Snapcast server for satellites (`Engine.satelliteAudio`, on Java's clock). Off unless the app turns it on (`Engine.relayAudio`).
+- `0009`: the `aaudio` backend hands every timed buffer, with the time Shairport says it is heard, to the app's Snapcast server for satellites (`Engine.satelliteAudio`, on Java's clock), and an empty one on a flush. The AAudio buffer holds the whole desired length, the satellites' head start. Off unless the app turns it on (`Engine.relayAudio`).
 
 ## nqptp
 

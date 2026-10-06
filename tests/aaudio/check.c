@@ -9,10 +9,14 @@ shairport_cfg config;
 
 void mutex_unlock(void *arg) { pthread_mutex_unlock((pthread_mutex_t *)arg); }
 
-static int relayed_frames, relayed_rate;
+static int relayed_frames, relayed_rate, relayed_flushes;
 static uint64_t relayed_playtime;
 void android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
                    uint64_t playtime) {
+  if (frames == 0) {
+    relayed_flushes++;
+    return;
+  }
   relayed_frames = frames;
   relayed_rate = rate;
   relayed_playtime = playtime;
@@ -62,9 +66,16 @@ int main(void) {
   assert(drift > -8192 && drift < 8192); // within one deep-buffer burst
 
   audio_aaudio.flush(); // closes; the next play() reopens with fresh counters
+  assert(relayed_flushes == 1); // satellites drop what they hold too
   assert(audio_aaudio.delay(&frames) == 0 && frames == 0);
   long reopened = play_seconds(0.5);
   assert(reopened > 0 && reopened < 44100);
+
+  // With satellites the app asks for 1 s (their head start): the buffer must hold it.
+  config.audio_backend_buffer_desired_length = 1.0;
+  audio_aaudio.flush();
+  long deep = play_seconds(2.0);
+  assert(deep > 44100 * 3 / 4 && deep < 44100 * 3 / 2);
 
   audio_aaudio.deinit();
   puts("PASS aaudio backend");
