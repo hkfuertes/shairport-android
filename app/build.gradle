@@ -24,6 +24,9 @@ android {
             // ponytail: debug key, so it upgrades a debug install and keeps ANDROID_ID (the AirPlay
             // device ID). A real key when the APK is published.
             signingConfig signingConfigs.debug
+            // Strips the unused BouncyCastle (~7 MB of dex); app classes stay whole (JNI calls them by name).
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
@@ -50,5 +53,9 @@ kotlin {
 }
 
 dependencies {
+    // Sendspin (Satellites.kt): WebSockets both ways, and X25519 + AEADs older Androids lack.
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303' // Android's org.json, on the JVM
 }

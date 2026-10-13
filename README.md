@@ -1,6 +1,6 @@
 # Shairport
 
-An AirPlay receiver for Android 8.1 or later (arm64 and 32-bit ARM). [Shairport Sync](https://github.com/mikebrady/shairport-sync) 5.5.2 runs inside the app as a JNI library and advertises itself through Android's own mDNS. Classic AirPlay and Snapcast need no root; AirPlay 2 (multi-room) needs root for [NQPTP](https://github.com/mikebrady/nqptp) 1.2.8, its timing service. When root is available, Wi-Fi power-save protection starts automatically with the receiver, independently of the AirPlay version. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
+An AirPlay receiver for Android 8.1 or later (arm64 and 32-bit ARM). [Shairport Sync](https://github.com/mikebrady/shairport-sync) 5.5.2 runs inside the app as a JNI library and advertises itself through Android's own mDNS. Classic AirPlay and Sendspin satellites need no root; AirPlay 2 (multi-room) needs root for [NQPTP](https://github.com/mikebrady/nqptp) 1.2.8, its timing service. When root is available, Wi-Fi power-save protection starts automatically with the receiver, independently of the AirPlay version. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
 
 A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk and Home Assistant.
 
@@ -10,11 +10,11 @@ Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairpor
 
 - **AirPlay receiver** starts or stops it, as do the Quick Settings tile and the notification's *Stop*.
 - **AirPlay 2** needs root for NQPTP. Its switch stays off and disabled without root; grant it through **Root access** to enable the switch. The receiver stays classic AirPlay otherwise.
-- With **Root access** granted, the receiver automatically keeps Wi-Fi awake, including classic AirPlay and Snapcast. Stopping it restores normal Wi-Fi management. There is no Wi-Fi toggle; the grey Root access summary explains it. Without root, classic AirPlay, satellites and linked volume remain available.
+- With **Root access** granted, the receiver automatically keeps Wi-Fi awake, including classic AirPlay and satellites. Stopping it restores normal Wi-Fi management. There is no Wi-Fi toggle; the grey Root access summary explains it. Without root, classic AirPlay, satellites and linked volume remain available.
 - **Start at boot**, no root needed. With a secure lock screen it starts after the first unlock.
 - **Name** (default: the device name), **Model** (the icon senders show, AirPlay 2 only) and **Playback mode** (stereo or mono).
 - **Link Android music volume** defaults on: AirPlay changes Android's music volume, and satellites follow it. Turn it off to keep that volume fixed and apply AirPlay volume only to this receiver's audio (satellites included).
-- **Satellites (Snapcast)**: Snapcast clients play along, in sync (see [Satellites](#satellites-snapcast)). **Connected satellites** shows where to point them and who is connected.
+- **Satellites (Sendspin)**: Sendspin players play along, in sync (see [Satellites](#satellites-sendspin)). **Only satellites** keeps this device silent while they play. **Connected satellites** shows the server address and who is connected.
 - **Status** shows each part: Shairport Sync and its mode, NQPTP, the mDNS advertisement, playback.
 
 ## Configure from ADB
@@ -41,9 +41,13 @@ adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.Se
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key airplay_2 --ez value true
 
-# Snapcast satellites; false disables them (restarts the engine)
+# Sendspin satellites; false disables them (restarts the engine)
 adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
   -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key satellites --ez value true
+
+# Only the satellites play; this device stays silent (restarts the engine)
+adb shell am broadcast --include-stopped-packages -n com.hkfuertes.shairport/.SettingsReceiver \
+  -a com.hkfuertes.shairport.CONFIGURE_SETTINGS --es key satellites_only --ez value true
 ```
 
 List keys, types, current values, defaults, and choices with their labels as JSON:
@@ -88,7 +92,7 @@ The whole setup works over adb, with no screen interaction. Root is only needed 
 
 [`kiosk-plugin/`](kiosk-plugin) is a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that manages this app from the kiosk and its Remote Admin page, and publishes its state to Home Assistant. It only manages: the Shairport app must be installed (and granted root for AirPlay 2, as above), and the app keeps running the receiver. The plugin drives the adb interface above through Kiosk Satellite's Shizuku access (the `shell` backend is enough), one command at a time: `GET_STATUS` every 5 s, `CONFIGURE_SETTINGS` for changes, `am start-foreground-service` to turn the receiver on.
 
-- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2, Name, Model, Playback mode, Link Android music volume, Satellites (Snapcast), Start at boot. They show the app's current values, including changes made in the app itself. The status line reports the receiver's state and `N satellites connected` (or `Satellites off`), refreshed every 5 s; while waiting it also shows AirPlay 2 or classic AirPlay. The form is static: clients are counted, not listed individually.
+- Settings, on the kiosk and in Remote Admin: AirPlay receiver, AirPlay 2, Name, Model, Playback mode, Link Android music volume, Satellites (Sendspin), Only satellites, Start at boot. They show the app's current values, including changes made in the app itself. The status line reports the receiver's state and `N satellites connected` (or `Satellites off`), refreshed every 5 s; while waiting it also shows AirPlay 2 or classic AirPlay. The form is static: clients are counted, not listed individually.
 - Home Assistant (Kiosk Satellite's **Settings > ESPHome**: Enable ESPHome and Expose kiosk entities): switch *AirPlay receiver*; text sensors *State* (`off`, `idle`, `playing`), *Source*, *Title*, *Artist* and *Album*; sensor *Volume* (%).
 
 Install it with **Plugin Manager > Developer Tools > Install from ZIP**, using `shairport-*.zip` from a release or from `build/kiosk-plugin/`. Then grant Kiosk Satellite Shizuku access and enable the plugin.
@@ -110,17 +114,20 @@ media_player:
       turn_off: {action: switch.turn_off, target: {entity_id: switch.kiosk_shairport_airplay_receiver}}
 ```
 
-## Satellites (Snapcast)
+## Satellites (Sendspin)
 
-With **Satellites (Snapcast)** on (adb: `--es key satellites --ez value true`), the receiver is also a minimal [Snapcast](https://github.com/badaix/snapcast) server: Snapcast clients play what it plays, in sync with it and with the rest of an AirPlay 2 group. For the sender they are part of this speaker: one volume, grouped together.
+With **Satellites (Sendspin)** on (adb: `--es key satellites --ez value true`), the receiver is also a minimal [Sendspin](https://github.com/Sendspin/spec) server: Sendspin players play what it plays, in sync with it and with the rest of an AirPlay 2 group. For the sender they are part of this speaker: one volume, grouped together.
 
-- Clients: `snapclient` on Linux, an [ESP32](https://github.com/CarlosDerSeher/snapclient), [Snapdroid](https://github.com/badaix/snapdroid) on Android. They find the server over mDNS (`_snapcast._tcp`, named `Snapcast`) or at the device's address, port 1704: **Connected satellites** shows that address, and each client connected with its name, address and version. When pointing them at the address, give the device a fixed one (a DHCP reservation).
-- Clients reconnect by themselves, after an engine restart (any settings change restarts it) or when the device is back on the network. With root granted, Wi-Fi protection runs automatically for reliable screen-off playback (verified on the POCO, Android 15), with either AirPlay mode. Without that protection the device may stop answering with the screen off (see [Limitations](#limitations)), and satellites wait until it's back.
+- **Only satellites** (adb: `--es key satellites_only --ez value true`): the satellites play and this device stays silent. It still runs its audio output, playing zeros: its clock keeps pacing Shairport and the satellites.
+
+- Players: the [sendspin CLI](https://github.com/Sendspin/sendspin-python-cli), [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) and ESPHome players, and any other Sendspin `player@v1`. Both ways in: players that wait for a server (`_sendspin._tcp`, the default) are found and connected to; players that look for one find it as `_sendspin-server._tcp` (named like the receiver) or at the device's address, port 8927, path `/sendspin` (`sendspin daemon --url ws://ADDRESS:8927/sendspin`). **Connected satellites** shows that address, and each player connected with its name, address, product and version.
+- Unpaired access only: players must allow it (the sendspin CLI does by default, `--unpaired-access`). Pairing isn't implemented, and turning Satellites on approves every player that allows it. A player that only plays paired stays connected but idle. The traffic is still encrypted (Noise), but not authenticated: anyone on the network can pose as a player.
+- Format: 16-bit stereo PCM at the AirPlay rate (44.1 kHz). A player that doesn't list it (e.g. 48 kHz only, or FLAC only) is not sent audio.
+- Players reconnect by themselves (or we reconnect to them, every 5 s), after an engine restart (any settings change restarts it) or when the device is back on the network. With root granted, Wi-Fi protection runs automatically for reliable screen-off playback (verified on the POCO, Android 15), with either AirPlay mode. Without that protection the device may stop answering with the screen off (see [Limitations](#limitations)), and satellites wait until it's back.
 - Each buffer goes out with the time Shairport plays it, on the sender's timeline (AirPlay 2's PTP clock included), as 20 ms chunks of 16-bit PCM: about 1.4 Mbit/s per client. Clients play it at that time, so they follow the AirPlay timeline, not this device's speaker.
-- Volume, with **Link Android music volume** on: satellites play at this device's music volume, however it is set (sender, volume keys, Home Assistant). It goes to them as their Snapcast volume, which each client applies at once (snapclient does; an ESPHome snapclient moves its media player's volume), while the audio goes at full scale. A client that ignores it plays at full volume.
+- Volume, with **Link Android music volume** on: satellites play at this device's music volume, however it is set (sender, volume keys, Home Assistant). It goes to them as a Sendspin volume command, to the players that accept one, while the audio goes at full scale. A player that doesn't plays at its own volume.
 - With the link off, AirPlay volume goes into the audio itself, over a 40 dB range, and a change is heard about 1 s later (see below). Each satellite's own level is set on the satellite, and this device's with its own volume.
-- Port 1705 accepts connections and answers nothing: Snapdroid only offers Play while connected there, so its group list stays empty.
-- Satellites get the audio about 1 s ahead: with them on, Shairport keeps 1 s in the AAudio buffer instead of 0.5 s, room for Wi-Fi hiccups. When audio is heard doesn't change, only how early it leaves. A client cut off for longer goes silent and comes back in sync. Clients buffer 1.5 s, so an ESP32 needs PSRAM. On pause or skip they get a new codec header, drop what they hold and stop with this device.
+- Satellites get the audio about 1 s ahead: with them on, Shairport keeps 1 s in the AAudio buffer instead of 0.5 s, room for Wi-Fi hiccups. When audio is heard doesn't change, only how early it leaves. Each chunk carries the time it is heard, so a player cut off for longer goes silent and comes back in sync; one whose `buffer_capacity` can't hold that second loses chunks. On pause or skip their stream ends (they drop what they hold and stop with this device), and the next audio starts a new one.
 
 ## Limitations
 
@@ -152,7 +159,7 @@ Testing:
 
 - `tests/aaudio/run.sh [serial]` checks the AAudio backend on a rooted device, writing only zeros.
 - The plugin's test runs against a fake Kiosk Satellite host in every build.
-- `SatellitesTest` runs the Snapcast server against a fake snapclient in every build.
+- `SatellitesTest` runs the Sendspin server against a fake player (Noise handshake included), both ways in, in every build.
 - `RootScriptTest` checks automatic Wi-Fi protection with either AirPlay mode, legacy fallback and serialized cleanup with fake commands; it never changes the host's radio.
 - `python3 tests/root-ui/check.py granted` (or `denied`) checks the AirPlay 2 switch and subtitle on an unlocked device with its Magisk policy set accordingly; stop the receiver and set `airplay_2=true` first for the denied case.
 - Without an Apple device, AirConnect's `cliraop -a` (ALAC) plays to classic AirPlay (with Link Android music volume on, `-v 0` sets Android's volume to 0 too). pyatv can't drive this build. AirPlay 2 needs an Apple sender.
@@ -167,13 +174,13 @@ The rule: whatever Android can do, Android does; root only where nothing else wo
 - Audio: AAudio (patch `0007`) reports the real output delay, which AirPlay 2 timing and multi-room need. It's why Android 8.1 is the minimum.
 - AirPlay 2: NQPTP binds UDP ports 319 and 320, which takes root. With the switch on, `ReceiverService` runs a root watcher through `su` until the app stops it or dies. NQPTP's shared memory lives in external app storage, which both root and the app can reach. On root refusal the AirPlay 2 switch turns off and Shairport starts in classic mode; non-root features remain enabled.
 - Device ID: apps can't read the MAC address, so the AirPlay device ID comes from `ANDROID_ID`.
-- Satellites: patch `0009` hands every buffer the AAudio backend plays, with the time Shairport says it is heard, to `Satellites.kt` in the `:engine` process, the Snapcast server, and an empty one on a flush (pause, skip). Its connects and disconnects reach the app's screens over the engine's status `Messenger`.
+- Satellites: patch `0009` hands every buffer the AAudio backend plays, with the time Shairport says it is heard, to `Satellites.kt` in the `:engine` process, the Sendspin server (Noise in `Noise.kt`), and an empty one on a flush (pause, skip). With Only satellites, AAudio gets zeros instead. Its connects and disconnects reach the app's screens over the engine's status `Messenger`.
 - Volume: with Link Android music volume on, Shairport ignores volume control and sends metadata to the app over loopback UDP; the app applies the sender's volume to Android's music stream. With satellites, the engine passes every change of that volume on to them (Android's volume-change broadcast). With it off, Shairport applies AirPlay volume itself.
 - Wi-Fi: a high-performance Wi-Fi lock keeps the receiver reachable with the screen off up to Android 13 (see [Limitations](#limitations)). When root is available, protection automatically forces low-latency mode, falling back to high-performance on older Androids; stopping the receiver restores normal Wi-Fi management. A file lock serializes root helpers so an old instance's cleanup cannot undo a replacement's Wi-Fi mode.
 
 ## Layout
 
-- `app/`: the Kotlin app: `MainActivity` (settings and status), `ReceiverService`, `Engine.kt` (`EngineService`, the `:engine` process), `Satellites` (the Snapcast server) and `SatellitesActivity` (who is connected), `VolumeSync`, `SettingsReceiver` (the adb interface), `BootReceiver`, `ReceiverTileService`.
+- `app/`: the Kotlin app: `MainActivity` (settings and status), `ReceiverService`, `Engine.kt` (`EngineService`, the `:engine` process), `Satellites` (the Sendspin server) and `Noise` and `SatellitesActivity` (who is connected), `VolumeSync`, `SettingsReceiver` (the adb interface), `BootReceiver`, `ReceiverTileService`.
 - `native/`: the engine's build scripts, run by the Dockerfile, and its [patches](native/patches/README.md).
 - `kiosk-plugin/`: the Kiosk Satellite plugin (Java) and its test.
 - `tests/aaudio/`: the on-device AAudio check.

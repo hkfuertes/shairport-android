@@ -18,8 +18,10 @@ object Prefs {
     const val PLAYBACK_MODE = "playback_mode"
     /** When false, AirPlay volume stays inside Shairport and leaves Android's music stream alone. */
     const val LINK_STREAM_VOLUME = "link_stream_volume"
-    /** Snapcast server for satellites (Satellites.kt), on ports 1704 and 1705. */
+    /** Sendspin server for satellites (Satellites.kt), on port 8927. */
     const val SATELLITES = "satellites"
+    /** With satellites on: only they play, this device stays silent. */
+    const val SATELLITES_ONLY = "satellites_only"
 
     /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
     const val GENERIC_MODEL = "ShairportSync"
@@ -34,9 +36,10 @@ object Prefs {
         PLAYBACK_MODE to "stereo",
         LINK_STREAM_VOLUME to true,
         SATELLITES to false,
+        SATELLITES_ONLY to false,
     )
 
-    /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Snapcast volume. */
+    /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Sendspin volume. */
     fun linkedVolume(preferences: SharedPreferences): Boolean = preferences.getBoolean(LINK_STREAM_VOLUME, true)
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */

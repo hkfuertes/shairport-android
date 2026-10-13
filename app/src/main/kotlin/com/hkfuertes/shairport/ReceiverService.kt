@@ -40,7 +40,7 @@ class ReceiverService : Service() {
     private lateinit var volumeSync: VolumeSync
     @Volatile private var engine: ServiceConnection? = null
     private var engineConfig: String? = null
-    private var engineSatellites = false
+    private var engineSatellites: Pair<Boolean, Boolean>? = null // (on, only)
     /** Retry unavailable root on the next receiver start, or an explicit AirPlay 2 request. */
     private var rootUnavailable = false
     /** Optional root features; closing stdin restores Wi-Fi and stops NQPTP. */
@@ -136,7 +136,8 @@ class ReceiverService : Service() {
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
         val config = config(preferences, name, airplay2)
         val satellites = preferences.getBoolean(Prefs.SATELLITES, false)
-        if (engine != null && config == engineConfig && satellites == engineSatellites) {
+        val satellitesOnly = satellites && preferences.getBoolean(Prefs.SATELLITES_ONLY, false)
+        if (engine != null && config == engineConfig && (satellites to satellitesOnly) == engineSatellites) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
@@ -174,6 +175,8 @@ class ReceiverService : Service() {
             .putExtra(EngineService.EXTRA_SHM_DIRECTORY, shm?.path.orEmpty())
             .putExtra(EngineService.EXTRA_STATUS, engineMessages)
             .putExtra(EngineService.EXTRA_SATELLITES, satellites)
+            .putExtra(EngineService.EXTRA_SATELLITES_ONLY, satellitesOnly)
+            .putExtra(EngineService.EXTRA_NAME, name)
             // A change restarts the engine anyway: it changes ignore_volume_control.
             .putExtra(EngineService.EXTRA_LINKED_VOLUME, Prefs.linkedVolume(preferences))
         if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
@@ -184,7 +187,7 @@ class ReceiverService : Service() {
         }
         engine = connection
         engineConfig = config
-        engineSatellites = satellites
+        engineSatellites = satellites to satellitesOnly
         notifyForeground(getString(R.string.notification_active, name))
     }
 
@@ -230,7 +233,7 @@ class ReceiverService : Service() {
     private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
         ?.firstOrNull { it.processName == "$packageName:engine" }?.pid
 
-    /** With root, protect Wi-Fi automatically; classic AirPlay and Snapcast still work without it. */
+    /** With root, protect Wi-Fi automatically; classic AirPlay and satellites still work without it. */
     private fun startRoot(airplay2: Boolean, shm: File) {
         val userId = android.os.Process.myUid() / PER_USER_RANGE
         val script = rootScript(

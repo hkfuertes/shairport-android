@@ -1,209 +1,268 @@
 package com.hkfuertes.shairport
 
-import com.hkfuertes.shairport.Satellites.Companion.BUFFER_MS
-import com.hkfuertes.shairport.Satellites.Companion.CODEC_HEADER
-import com.hkfuertes.shairport.Satellites.Companion.HEADER_BYTES
-import com.hkfuertes.shairport.Satellites.Companion.HELLO
-import com.hkfuertes.shairport.Satellites.Companion.SERVER_SETTINGS
-import com.hkfuertes.shairport.Satellites.Companion.TIME
-import com.hkfuertes.shairport.Satellites.Companion.WIRE_CHUNK
-import java.io.DataInputStream
+import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
-import java.net.SocketTimeoutException
+import java.net.URI
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
+import org.java_websocket.WebSocket
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ClientHandshake
+import org.java_websocket.handshake.ServerHandshake
+import org.java_websocket.server.WebSocketServer
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A fake snapclient against [Satellites]: what a real one needs, in the order it needs it. */
+/** A fake Sendspin player against [Satellites]: what a real one needs, in the order it needs it. */
 class SatellitesTest {
-    private class Message(val type: Int, val refersTo: Int, val sent: Long, val payload: ByteBuffer)
+    /** The player's side of one connection, whoever opened it: Noise responder, then plaintexts. */
+    private class Player(private val suite: String = "25519_ChaChaPoly_SHA256") {
+        private val key = Noise.privateKey()
+        private val texts = LinkedBlockingQueue<String>()
+        private val plain = LinkedBlockingQueue<ByteArray>()
+        val closed = LinkedBlockingQueue<Boolean>()
+        lateinit var ws: WebSocket
+        private lateinit var send: Noise.Cipher
+        private lateinit var receive: Noise.Cipher
+        private var clientInit = ""
+
+        fun opened(ws: WebSocket) {
+            this.ws = ws
+            clientInit = JSONObject().put("type", "client/init").put(
+                "payload",
+                JSONObject().put("client_id", Noise.base64url(Noise.public(key))).put("version", 1).put("suite", suite),
+            ).toString()
+            ws.send(clientInit)
+        }
+
+        fun text(text: String) = texts.put(text)
+        fun binary(bytes: ByteBuffer) = plain.put(receive.decrypt(ByteArray(bytes.remaining()).also { bytes.get(it) }))
+
+        fun nextText(): JSONObject = JSONObject(checkNotNull(texts.poll(5, TimeUnit.SECONDS)) { "no text message" })
+
+        /** server/init and Noise message 1 in, message 2 out: the Sentinel PSK, unpaired. */
+        fun handshake() {
+            val serverInit = checkNotNull(texts.poll(5, TimeUnit.SECONDS))
+            val serverId = JSONObject(serverInit).getJSONObject("payload").getString("server_id")
+            val message1 = Noise.unbase64url(nextText().getJSONObject("payload").getString("data"))
+            val noise = Noise(suite, false, key, Noise.unbase64url(serverId), (clientInit + serverInit).toByteArray(), Noise.SENTINEL_PSK)
+            val payload = JSONObject(String(noise.readMessage1(message1)))
+            assertEquals(Noise.SENTINEL_PSK_ID, payload.getString("psk_id"))
+            assertEquals("sn", payload.getString("psk_category"))
+            val message2 = noise.writeMessage2("{}".toByteArray())
+            ws.send(JSONObject().put("type", "noise/handshake").put("payload", JSONObject().put("data", Noise.base64url(message2))).toString())
+            val (send, receive) = noise.split()
+            this.send = send
+            this.receive = receive
+        }
+
+        fun message(type: String, payload: JSONObject) =
+            ws.send(send.encrypt(byteArrayOf(0) + JSONObject().put("type", type).put("payload", payload).toString().toByteArray()))
+
+        fun next(): ByteArray = checkNotNull(plain.poll(5, TimeUnit.SECONDS)) { "nothing received" }
+
+        /** The next JSON message, which must be [type]: its payload. */
+        fun expect(type: String): JSONObject {
+            val message = next()
+            assertEquals("binary type", 0, message[0].toInt())
+            val json = JSONObject(String(message, 1, message.size - 1))
+            assertEquals(type, json.getString("type"))
+            return json.getJSONObject("payload")
+        }
+
+        fun hello(name: String, unpaired: Boolean = true, rate: Int = 44100) = message(
+            "client/hello",
+            JSONObject().put("name", name)
+                .put("device_info", JSONObject().put("product_name", "ESP32").put("software_version", "1.0"))
+                .put("supported_roles", JSONArray(listOf("player@v1", "metadata@v1")))
+                .put(
+                    "player@v1_support",
+                    JSONObject().put("buffer_capacity", 1_000_000).put(
+                        "supported_formats",
+                        JSONArray().put(JSONObject().put("codec", "flac").put("channels", 2).put("sample_rate", 48000).put("bit_depth", 24))
+                            .put(JSONObject().put("codec", "pcm").put("channels", 2).put("sample_rate", rate).put("bit_depth", 16)),
+                    ),
+                )
+                .put("supported_pair_methods", JSONObject())
+                .put("unpaired_access", JSONObject().put("enabled", unpaired)),
+        )
+    }
+
+    private fun connect(port: Int, player: Player) = object : WebSocketClient(URI("ws://127.0.0.1:$port${Satellites.PATH}")) {
+        override fun onOpen(handshake: ServerHandshake) = player.opened(this)
+        override fun onMessage(text: String) = player.text(text)
+        override fun onMessage(bytes: ByteBuffer) = player.binary(bytes)
+        override fun onClose(code: Int, reason: String?, remote: Boolean) = player.closed.put(true)
+        override fun onError(error: Exception) = Unit
+    }.also { assertTrue(it.connectBlocking(5, TimeUnit.SECONDS)) }
 
     @Test
-    fun servesASnapclient() {
+    fun servesAPlayer() {
         val reports = LinkedBlockingQueue<List<Pair<String, String>>>()
-        Satellites(port = 0, controlPort = 0, changed = { reports.put(it) }).use { satellites ->
-            Socket("127.0.0.1", satellites.port).use { socket ->
-                socket.soTimeout = 5000
-                val input = DataInputStream(socket.getInputStream())
-                val output = socket.getOutputStream()
+        Satellites("Living room", Noise.privateKey(), port = 0, changed = { reports.put(it) }).use { satellites ->
+            val player = Player()
+            val client = connect(satellites.port, player)
+            player.handshake()
+            assertEquals("Living room", player.expect("server/hello").getString("name"))
 
-                // Hello: server settings as its answer, then the codec header.
-                output.write(message(HELLO, id = 7, sent = 0, payload = withLength("""{"HostName":"test"}""")))
-                val settings = read(input)
-                assertEquals(SERVER_SETTINGS, settings.type)
-                assertEquals(7, settings.refersTo)
-                assertTrue(text(settings.payload).contains("\"bufferMs\":$BUFFER_MS"))
-                assertTrue(text(settings.payload).contains("\"volume\":100"))
-                val codec = read(input)
-                assertEquals(CODEC_HEADER, codec.type)
-                assertEquals("pcm", String(ByteArray(codec.payload.getInt(0)).also { codec.payload.position(4); codec.payload.get(it) }))
-                assertEquals(44100, codec.payload.getInt(4 + 3 + 4 + 24)) // RIFF header's sample rate
-                assertEquals(listOf("127.0.0.1" to """{"HostName":"test"}"""), reports.poll(5, TimeUnit.SECONDS))
+            player.hello("kitchen")
+            val activate = player.expect("server/activate")
+            assertEquals("[\"playback\"]", activate.getJSONArray("activities").toString())
+            assertEquals("[\"player@v1\"]", activate.getJSONArray("active_roles").toString())
+            val group = player.expect("group/update")
+            assertEquals("stopped", group.getString("playback_state"))
+            assertEquals("Living room", group.getString("group_name"))
+            val report = checkNotNull(reports.poll(5, TimeUnit.SECONDS)).single()
+            assertEquals("127.0.0.1", report.first)
+            assertEquals("kitchen", JSONObject(report.second).getString("name"))
 
-                // Time: latency = our receive time - the client's send time (its clock 5 s behind).
-                val clientSent = System.nanoTime() / 1000 - 5_000_000
-                output.write(message(TIME, id = 8, sent = clientSent, payload = ByteArray(8)))
-                val time = read(input)
-                assertEquals(TIME, time.type)
-                assertEquals(8, time.refersTo)
-                val latency = time.payload.getInt(0) * 1_000_000L + time.payload.getInt(4)
-                assertTrue("latency $latency", abs(latency - 5_000_000) < 500_000)
-                assertTrue(abs(time.sent - System.nanoTime() / 1000) < 500_000) // our clock
+            // Time: the server clock is System.nanoTime() in µs.
+            player.message("client/time", JSONObject().put("client_transmitted", 42))
+            val time = player.expect("server/time")
+            assertEquals(42, time.getLong("client_transmitted"))
+            assertNear(System.nanoTime() / 1000, time.getLong("server_received"), 500_000)
+            assertTrue(time.getLong("server_transmitted") >= time.getLong("server_received"))
 
-                // Buffers of Shairport's sizes, one stuffed (353): the first only sets the timeline,
-                // the rest go out as 20 ms chunks heard at their buffer's time.
-                var heardAt = System.nanoTime() + 400_000_000
-                val firstSent = heardAt + 352 * 1_000_000_000L / 44100
-                for ((index, frames) in listOf(352, 352, 353, 352, 352, 352, 352, 352).withIndex()) {
-                    satellites.audio(ByteArray(frames * 4) { (index + 1).toByte() }, 44100, heardAt)
-                    heardAt += 352 * 1_000_000_000L / 44100 // the stuffed frame doesn't move the timeline
-                }
-                val first = read(input)
-                assertEquals(WIRE_CHUNK, first.type)
-                assertEquals(firstSent / 1000 - BUFFER_MS * 1000, timestamp(first))
-                assertEquals(882 * 4, first.payload.getInt(8))
-                assertEquals(2, first.payload.get(12).toInt()) // the second buffer's frames...
-                assertEquals(3, first.payload.get(12 + 352 * 4).toInt()) // ...then the third's
-                assertNear(timestamp(first) + 20_000, timestamp(read(input)), 50) // 2 x 882 of 7 x 352
+            // Its first state: it gets our volume (100 while the AirPlay volume is in the PCM).
+            val state = JSONObject().put("volume", 30).put("muted", false).put("output_delay_ms", 0)
+                .put("required_lead_time_ms", 0).put("min_buffer_ms", 0).put("supported_commands", JSONArray(listOf("volume")))
+            player.message("client/state", JSONObject().put("available", true).put("player", state))
+            val command = player.expect("server/command").getJSONObject("player")
+            assertEquals("volume", command.getString("command"))
+            assertEquals(100, command.getInt("volume"))
 
-                // A jump (pause, skip): the partial chunk is dropped and the new timeline starts.
-                heardAt += 1_000_000_000
-                val resumed = heardAt + 352 * 1_000_000_000L / 44100
-                repeat(4) {
-                    satellites.audio(ByteArray(352 * 4), 44100, heardAt)
-                    heardAt += 352 * 1_000_000_000L / 44100
-                }
-                assertEquals(resumed / 1000 - BUFFER_MS * 1000, timestamp(read(input)))
-
-                // Flush also drops our partial chunk, even if the next timestamps are contiguous.
-                satellites.audio(ByteArray(0), 0, 0)
-                assertEquals(CODEC_HEADER, read(input).type)
-                val afterFlush = heardAt + 352 * 1_000_000_000L / 44100
-                repeat(4) {
-                    satellites.audio(ByteArray(352 * 4) { 9 }, 44100, heardAt)
-                    heardAt += 352 * 1_000_000_000L / 44100
-                }
-                val fresh = read(input)
-                assertEquals(WIRE_CHUNK, fresh.type)
-                assertTrue("pre-flush PCM survived", fresh.payload.array().drop(12).all { it == 9.toByte() })
-                assertEquals(afterFlush / 1000 - BUFFER_MS * 1000, timestamp(fresh))
-
-                // Linked volume: new settings, unasked, with the same buffer (no resync).
-                satellites.volume = 40
-                val pushed = read(input)
-                assertEquals(SERVER_SETTINGS, pushed.type)
-                assertTrue(text(pushed.payload).contains("\"volume\":40"))
-                assertTrue(text(pushed.payload).contains("\"bufferMs\":$BUFFER_MS"))
+            // Buffers of Shairport's sizes, one stuffed (353): the first only sets the timeline,
+            // the rest open the stream and go out as 20 ms chunks heard at their buffer's time.
+            var heardAt = System.nanoTime() + 400_000_000
+            val firstSent = heardAt + 352 * 1_000_000_000L / 44100
+            for ((index, frames) in listOf(352, 352, 353, 352, 352, 352, 352, 352).withIndex()) {
+                satellites.audio(ByteArray(frames * 4) { (index + 1).toByte() }, 44100, heardAt)
+                heardAt += 352 * 1_000_000_000L / 44100 // the stuffed frame doesn't move the timeline
             }
+            assertEquals("playing", player.expect("group/update").getString("playback_state"))
+            val format = player.expect("stream/start").getJSONObject("player")
+            assertEquals("pcm", format.getString("codec"))
+            assertEquals(44100, format.getInt("sample_rate"))
+            assertEquals(2, format.getInt("channels"))
+            assertEquals(16, format.getInt("bit_depth"))
+            val first = ByteBuffer.wrap(player.next())
+            assertEquals(4, first.get(0).toInt())
+            assertEquals(firstSent / 1000, first.getLong(1))
+            assertNear(first.getLong(1) - System.nanoTime() / 1000, first.getInt(9).toLong(), 500_000) // send_ahead
+            assertEquals(13 + 882 * 4, first.limit())
+            assertEquals(2, first.get(13).toInt()) // the second buffer's frames...
+            assertEquals(3, first.get(13 + 352 * 4).toInt()) // ...then the third's
+            assertNear(first.getLong(1) + 20_000, ByteBuffer.wrap(player.next()).getLong(1), 50) // 2 x 882 of 7 x 352
+
+            // Flush (pause, skip): the stream ends; the next audio opens a fresh one.
+            satellites.audio(ByteArray(0), 0, 0)
+            player.expect("stream/end")
+            assertEquals("stopped", player.expect("group/update").getString("playback_state"))
+            val afterFlush = heardAt + 352 * 1_000_000_000L / 44100
+            repeat(4) {
+                satellites.audio(ByteArray(352 * 4) { 9 }, 44100, heardAt)
+                heardAt += 352 * 1_000_000_000L / 44100
+            }
+            player.expect("group/update")
+            player.expect("stream/start")
+            val fresh = player.next()
+            assertTrue("pre-flush PCM survived", fresh.drop(13).all { it == 9.toByte() })
+            assertEquals(afterFlush / 1000, ByteBuffer.wrap(fresh).getLong(1))
+
+            // Linked volume: pushed to the players that take it.
+            satellites.volume = 40
+            assertEquals(40, player.expect("server/command").getJSONObject("player").getInt("volume"))
+
+            client.closeBlocking()
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
-
-            // Snapdroid's control connection stays open, unanswered.
-            Socket("127.0.0.1", satellites.controlPort).use { control ->
-                control.soTimeout = 300
-                assertTrue(runCatching { control.getInputStream().read() }.exceptionOrNull() is SocketTimeoutException)
-            }
         }
     }
 
     @Test
-    fun reportsCannotOvertakeEachOther() {
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val calls = AtomicInteger()
-        val reports = LinkedBlockingQueue<Int>()
-        Satellites(port = 0, controlPort = 0, changed = { snapshot ->
-            if (calls.incrementAndGet() == 1) {
-                entered.countDown()
-                check(release.await(5, TimeUnit.SECONDS))
+    fun dialsAPlayerThatWaits() {
+        val player = Player("25519_AESGCM_SHA256")
+        val listening = object : WebSocketServer(InetSocketAddress("127.0.0.1", 0)) {
+            override fun onOpen(ws: WebSocket, handshake: ClientHandshake) = player.opened(ws)
+            override fun onMessage(ws: WebSocket, text: String) = player.text(text)
+            override fun onMessage(ws: WebSocket, bytes: ByteBuffer) = player.binary(bytes)
+            override fun onClose(ws: WebSocket, code: Int, reason: String?, remote: Boolean) = player.closed.put(true)
+            override fun onError(ws: WebSocket?, error: Exception) = Unit
+            override fun onStart() = Unit
+        }
+        listening.start()
+        try {
+            Thread.sleep(200) // bound
+            Satellites("Living room", Noise.privateKey(), port = 0).use { satellites ->
+                satellites.connect("player", URI("ws://127.0.0.1:${listening.port}${Satellites.PATH}"))
+                player.handshake()
+                player.expect("server/hello")
+                // No unpaired access: held idle, never activated (pairing isn't supported).
+                player.hello("locked", unpaired = false)
+                val activate = player.expect("server/activate")
+                assertEquals(0, activate.getJSONArray("activities").length())
+                assertEquals(0, activate.getJSONArray("active_roles").length())
+                player.expect("group/update")
+                player.message("client/goodbye", JSONObject().put("reason", "shutdown"))
+                assertEquals(true, player.closed.poll(5, TimeUnit.SECONDS))
             }
-            reports.put(snapshot.size)
-        }).use { satellites ->
-            try {
-                Socket("127.0.0.1", satellites.port).use { a ->
-                    a.soTimeout = 5000
-                    a.getOutputStream().write(message(HELLO, 1, 0, withLength("""{"HostName":"A"}""")))
-                    val inputA = DataInputStream(a.getInputStream())
-                    assertEquals(SERVER_SETTINGS, read(inputA).type)
-                    assertEquals(CODEC_HEADER, read(inputA).type)
-                    assertTrue(entered.await(5, TimeUnit.SECONDS))
-                    Socket("127.0.0.1", satellites.port).use { b ->
-                        b.soTimeout = 5000
-                        b.getOutputStream().write(message(HELLO, 2, 0, withLength("""{"HostName":"B"}""")))
-                        val first = reports.poll(250, TimeUnit.MILLISECONDS)
-                        release.countDown()
-                        val inputB = DataInputStream(b.getInputStream())
-                        assertEquals(SERVER_SETTINGS, read(inputB).type)
-                        assertEquals(CODEC_HEADER, read(inputB).type)
-                        val delivered = mutableListOf<Int>()
-                        first?.let { delivered += it }
-                        while (delivered.size < 2) delivered += checkNotNull(reports.poll(5, TimeUnit.SECONDS))
-                        assertEquals(listOf(1, 2), delivered)
-                    }
-                }
-            } finally {
-                release.countDown()
-            }
+        } finally {
+            listening.stop(1000)
         }
     }
 
     @Test
-    fun failedControlBindReleasesAudioPort() {
+    fun playerWithoutOurFormatGetsNoStream() {
+        Satellites("Living room", Noise.privateKey(), port = 0).use { satellites ->
+            val player = Player()
+            connect(satellites.port, player)
+            player.handshake()
+            player.expect("server/hello")
+            player.hello("48k only", rate = 48000)
+            player.expect("server/activate")
+            player.expect("group/update")
+            player.message("client/state", JSONObject().put("available", true).put("player", JSONObject().put("output_delay_ms", 0)))
+            var heardAt = System.nanoTime() + 400_000_000
+            repeat(4) {
+                satellites.audio(ByteArray(352 * 4), 44100, heardAt)
+                heardAt += 352 * 1_000_000_000L / 44100
+            }
+            player.expect("group/update") // playing, but nothing for it to play
+            player.message("client/time", JSONObject().put("client_transmitted", 1))
+            player.expect("server/time")
+        }
+    }
+
+    @Test
+    fun badInitGetsAnError() {
+        Satellites("Living room", Noise.privateKey(), port = 0).use { satellites ->
+            val player = Player()
+            val client = object : WebSocketClient(URI("ws://127.0.0.1:${satellites.port}${Satellites.PATH}")) {
+                override fun onOpen(handshake: ServerHandshake) =
+                    send("""{"type":"client/init","payload":{"client_id":"x","version":2,"suite":"25519_ChaChaPoly_SHA256"}}""")
+                override fun onMessage(text: String) = player.text(text)
+                override fun onClose(code: Int, reason: String?, remote: Boolean) = player.closed.put(true)
+                override fun onError(error: Exception) = Unit
+            }
+            assertTrue(client.connectBlocking(5, TimeUnit.SECONDS))
+            val error = player.nextText()
+            assertEquals("server/error", error.getString("type"))
+            assertEquals("unsupported_version", error.getJSONObject("payload").getString("reason"))
+            assertEquals(true, player.closed.poll(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun busyPortFailsTheConstructor() {
         ServerSocket(0).use { occupied ->
-            val port = ServerSocket(0).use { it.localPort }
-            assertTrue(runCatching { Satellites(port, occupied.localPort).close() }.isFailure)
-            ServerSocket(port).use { assertEquals(port, it.localPort) }
-        }
-    }
-
-    @Test
-    fun onlyConnectionsWithoutHelloTimeOut() {
-        Satellites(port = 0, controlPort = 0).use { satellites ->
-            Socket("127.0.0.1", satellites.port).use { ready ->
-                ready.soTimeout = 8000
-                val output = ready.getOutputStream()
-                val input = DataInputStream(ready.getInputStream())
-                output.write(message(HELLO, 1, 0, withLength("""{"HostName":"idle ESP32"}""")))
-                assertEquals(SERVER_SETTINGS, read(input).type)
-                assertEquals(CODEC_HEADER, read(input).type)
-                Socket("127.0.0.1", satellites.port).use { pending ->
-                    pending.soTimeout = 8000
-                    assertEquals("unfinished handshake stays open", -1, pending.getInputStream().read())
-                }
-                // The handshaken client has also been idle beyond the timeout: it must still work.
-                output.write(message(TIME, 2, 0, ByteArray(8)))
-                assertEquals(TIME, read(input).type)
-            }
+            assertTrue(runCatching { Satellites("x", Noise.privateKey(), port = occupied.localPort) }.isFailure)
         }
     }
 
     private fun assertNear(expected: Long, actual: Long, delta: Long) =
         assertTrue("$actual not within $delta of $expected", abs(actual - expected) <= delta)
-
-    private fun le(size: Int) = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
-
-    private fun withLength(json: String) = json.toByteArray().let { le(4 + it.size).putInt(it.size).put(it).array() }
-
-    private fun text(payload: ByteBuffer) = String(payload.array(), 4, payload.getInt(0))
-
-    private fun timestamp(chunk: Message) = chunk.payload.getInt(0) * 1_000_000L + chunk.payload.getInt(4)
-
-    private fun message(type: Int, id: Int, sent: Long, payload: ByteArray): ByteArray =
-        le(HEADER_BYTES + payload.size).putShort(type.toShort()).putShort(id.toShort()).putShort(0)
-            .putInt((sent / 1_000_000).toInt()).putInt((sent % 1_000_000).toInt()).putInt(0).putInt(0)
-            .putInt(payload.size).put(payload).array()
-
-    private fun read(input: DataInputStream): Message {
-        val header = le(HEADER_BYTES).also { input.readFully(it.array()) }
-        val payload = le(header.getInt(22)).also { input.readFully(it.array()) }
-        val sent = header.getInt(6) * 1_000_000L + header.getInt(10)
-        return Message(header.getShort(0).toInt(), header.getShort(4).toInt(), sent, payload)
-    }
 }

@@ -17,8 +17,12 @@ import android.os.Messenger
 import android.os.Process
 import android.system.Os
 import android.util.Log
+import java.io.File
+import java.net.Inet4Address
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -37,22 +41,68 @@ object Engine {
     /** Asks Shairport to exit cleanly (mDNS goodbyes, AAudio closed), which ends the process. */
     @JvmStatic external fun stop()
 
-    /** Patch 0009: hand every buffer AAudio plays to [satelliteAudio]. */
-    @JvmStatic private external fun relayAudio(on: Boolean)
+    /** Patch 0009: hand every buffer AAudio plays to [satelliteAudio]; [only]: AAudio plays zeros. */
+    @JvmStatic private external fun relayAudio(on: Boolean, only: Boolean)
 
     @Volatile private var satellites: Satellites? = null
 
-    /** Snapcast server for satellites, for the rest of this process (one engine run). */
-    fun startSatellites() {
-        satellites = runCatching { Satellites(log = { Log.i(TAG, it) }, changed = ::reportSatellites) }
+    /**
+     * Sendspin server for satellites, for the rest of this process (one engine run): advertised for
+     * players that connect themselves, and connecting to those that wait for a server.
+     */
+    fun startSatellites(name: String, identity: ByteArray, only: Boolean) {
+        val server = runCatching { Satellites(name, identity, log = { Log.i(TAG, it) }, changed = ::reportSatellites) }
             .onFailure { Log.e(TAG, "Satellites: could not listen on ${Satellites.PORT}", it) }
             .getOrNull() ?: return
-        relayAudio(true)
-        // Snapdroid only takes a server whose name starts with "Snapcast".
-        mdnsPublish("_snapcast._tcp", "Snapcast".toByteArray(), Satellites.PORT, emptyArray())
+        satellites = server
+        relayAudio(true, only)
+        val txt = arrayOf("path=${Satellites.PATH}", "name=$name").map { it.toByteArray() }.toTypedArray()
+        mdnsPublish("_sendspin-server._tcp", name.toByteArray(), Satellites.PORT, txt)
+        nsd.discoverServices("_sendspin._tcp", NsdManager.PROTOCOL_DNS_SD, PlayerDiscovery(server))
     }
 
-    /** Snapcast volume for every satellite, in percent (linked volume: EngineService). */
+    /**
+     * Players that wait for a server (`_sendspin._tcp`): resolved one at a time (older NsdManagers
+     * refuse concurrent resolves), then [Satellites.connect]ed while advertised.
+     */
+    private class PlayerDiscovery(private val satellites: Satellites) : NsdManager.DiscoveryListener {
+        private val resolver = Executors.newSingleThreadExecutor()
+
+        override fun onServiceFound(info: NsdServiceInfo) {
+            resolver.execute {
+                val done = CountDownLatch(1)
+                @Suppress("DEPRECATION") // resolveService: the replacement is API 34+
+                nsd.resolveService(info, object : NsdManager.ResolveListener {
+                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                        val host = resolved.host
+                        // ponytail: IPv4 only; a link-local IPv6 address needs its scope in the URI.
+                        if (host is Inet4Address) {
+                            val path = resolved.attributes["path"]?.let { String(it, Charsets.UTF_8) } ?: Satellites.PATH
+                            Log.i(TAG, "Satellites: found player \"${resolved.serviceName}\" at ${host.hostAddress}:${resolved.port}")
+                            satellites.connect(resolved.serviceName, URI("ws", null, host.hostAddress, resolved.port, path, null, null))
+                        }
+                        done.countDown()
+                    }
+
+                    override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) {
+                        Log.w(TAG, "Satellites: could not resolve \"${failed.serviceName}\": error $errorCode")
+                        done.countDown()
+                    }
+                })
+                done.await(RESOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
+        }
+
+        override fun onServiceLost(info: NsdServiceInfo) = satellites.forget(info.serviceName)
+        override fun onDiscoveryStarted(serviceType: String) = Unit
+        override fun onDiscoveryStopped(serviceType: String) = Unit
+        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+            Log.w(TAG, "Satellites: could not look for players: error $errorCode")
+        }
+        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
+    }
+
+    /** Sendspin volume for every satellite, in percent (linked volume: EngineService). */
     fun satelliteVolume(percent: Int) {
         satellites?.volume = percent
     }
@@ -146,6 +196,7 @@ object Engine {
 
     private const val TAG = "Shairport"
     private const val UNREGISTER_TIMEOUT_MS = 1000L
+    private const val RESOLVE_TIMEOUT_MS = 10_000L
 }
 
 /** Hosts [Engine] in the :engine process: ReceiverService binds it to start and unbinds to stop. */
@@ -162,7 +213,11 @@ class EngineService : Service() {
         Engine.status = messenger(intent)
         Os.setenv("NQPTP_SHM_DIRECTORY", intent.getStringExtra(EXTRA_SHM_DIRECTORY).orEmpty(), true)
         if (intent.getBooleanExtra(EXTRA_SATELLITES, false)) {
-            Engine.startSatellites()
+            Engine.startSatellites(
+                intent.getStringExtra(EXTRA_NAME).orEmpty(),
+                identity(),
+                intent.getBooleanExtra(EXTRA_SATELLITES_ONLY, false),
+            )
             if (intent.getBooleanExtra(EXTRA_LINKED_VOLUME, false)) followMusicVolume()
         }
         val arguments = requireNotNull(intent.getStringArrayExtra(EXTRA_ARGUMENTS))
@@ -194,6 +249,15 @@ class EngineService : Service() {
         volumeReceiver = receiver
     }
 
+    /** Our Sendspin server_id's private key: made once, so players keep recognising us. */
+    private fun identity(): ByteArray {
+        val file = File(filesDir, IDENTITY_FILE)
+        runCatching { file.readBytes() }.getOrNull()?.takeIf { it.size == 32 }?.let { return it }
+        return Noise.privateKey().also { key ->
+            runCatching { file.writeBytes(key) }.onFailure { Log.w(TAG, "Satellites: identity not saved", it) }
+        }
+    }
+
     override fun onDestroy() {
         volumeReceiver?.let { unregisterReceiver(it) }
         if (started) Engine.stop() // Shairport's exit ends this process
@@ -213,6 +277,11 @@ class EngineService : Service() {
         const val EXTRA_SHM_DIRECTORY = "shm_directory"
         const val EXTRA_STATUS = "status"
         const val EXTRA_SATELLITES = "satellites"
+        /** Satellites play, this device stays silent. */
+        const val EXTRA_SATELLITES_ONLY = "satellites_only"
+        /** The receiver's name: the Sendspin server's too. */
+        const val EXTRA_NAME = "name"
+        private const val IDENTITY_FILE = "sendspin_identity"
         /** Satellites play at this device's music volume (the PCM is at full scale). */
         const val EXTRA_LINKED_VOLUME = "linked_volume"
         /** arg1: advertised at all; arg2: as AirPlay 2 (`_airplay._tcp`). */

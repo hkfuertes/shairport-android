@@ -9,17 +9,18 @@ shairport_cfg config;
 
 void mutex_unlock(void *arg) { pthread_mutex_unlock((pthread_mutex_t *)arg); }
 
-static int relayed_frames, relayed_rate, relayed_flushes;
+static int relayed_frames, relayed_rate, relayed_flushes, satellites_only;
 static uint64_t relayed_playtime;
-void android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
-                   uint64_t playtime) {
+int android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
+                  uint64_t playtime) {
   if (frames == 0) {
     relayed_flushes++;
-    return;
+    return 0;
   }
   relayed_frames = frames;
   relayed_rate = rate;
   relayed_playtime = playtime;
+  return satellites_only;
 }
 
 void parse_audio_options(__attribute__((unused)) const char *stanza,
@@ -61,6 +62,15 @@ int main(void) {
   static int16_t timed[2 * 441];
   assert(audio_aaudio.play(timed, 441, 0, 1, 123456789) == 0);
   assert(relayed_frames == 441 && relayed_rate == 44100 && relayed_playtime == 123456789);
+  // Satellites only: they get the frames, this device plays zeros (so does this check).
+  static int16_t loud[2 * 441];
+  for (int i = 0; i < 2 * 441; i++)
+    loud[i] = 1000;
+  satellites_only = 1;
+  assert(audio_aaudio.play(loud, 441, 0, 1, 123456789) == 0);
+  for (int i = 0; i < 2 * 441; i++)
+    assert(loud[i] == 0);
+  satellites_only = 0;
   assert(first > 0 && first < 44100 && second > 0 && second < 44100);
   long drift = second - first;
   assert(drift > -8192 && drift < 8192); // within one deep-buffer burst

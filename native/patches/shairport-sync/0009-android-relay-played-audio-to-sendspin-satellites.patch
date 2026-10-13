@@ -1,32 +1,36 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 Date: Tue, 6 Oct 2026 13:30:00 +0200
-Subject: [PATCH] android: relay played audio to the app's Snapcast satellites
+Subject: [PATCH] android: relay played audio to the app's Sendspin satellites
 
 The aaudio backend's play() hands each timed buffer to android.c before its
 blocking write, with the time Shairport says its first frame is heard
 (should_be_time: the sender's timeline, AirPlay 2's PTP included). android.c
 passes it to Engine.satelliteAudio() on Java's clock (System.nanoTime), where
-the app's Snapcast server sends it to its clients stamped with that time.
+the app's Sendspin server sends it to its clients stamped with that time.
 flush() (pause, skip, stop) hands over an empty buffer: clients drop theirs.
 
 The AAudio buffer now holds the whole desired length
 (audio_backend_buffer_desired_length_in_seconds): that is how far ahead
 satellites get the audio, and the app asks for 1 s when it runs them.
 
-Off unless the app calls Engine.relayAudio(true). A thread attaches to the JVM
+Satellites only: Engine.relayAudio(true, true) makes android_relay() return
+1 and play() writes zeros to AAudio instead, so this device is silent while
+its AAudio clock keeps pacing Shairport, and so the satellites.
+
+Off unless the app calls Engine.relayAudio(true, ...). A thread attaches to the JVM
 once (the player thread; a flush may come from another) and is detached by a
 pthread key destructor when it exits.
 
 Upstream: not submitted (Android only)
 Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 ---
- android.c      | 58 ++++++++++++++++++++++++++++++++++++++++++++++++--
- audio_aaudio.c | 19 ++++++++++++-----
- 2 files changed, 70 insertions(+), 7 deletions(-)
+ android.c      | 63 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+ audio_aaudio.c | 21 +++++++++++++++-----
+ 2 files changed, 77 insertions(+), 7 deletions(-)
 
 diff --git a/android.c b/android.c
-index 75513ce..468fbe2 100644
+index 75513ce..b3b93e6 100644
 --- a/android.c
 +++ b/android.c
 @@ -15,6 +15,7 @@
@@ -44,7 +48,7 @@ index 75513ce..468fbe2 100644
 -static jmethodID publish_method, unpublish_method;
 +static jmethodID publish_method, unpublish_method, relay_method;
 +static pthread_key_t relay_thread;
-+static volatile int relaying;
++static volatile int relaying, satellites_only;
  static pthread_t log_thread;
  static int log_forwarding;
  
@@ -69,13 +73,16 @@ index 75513ce..468fbe2 100644
  }
  
  // App processes have stdout and stderr on /dev/null; Shairport logs to stderr.
-@@ -97,6 +109,48 @@ JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_stop(__attribute__((u
+@@ -97,6 +109,53 @@ JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_stop(__attribute__((u
    exit_request(EXIT_SUCCESS);
  }
  
-+// Satellites (Engine.satelliteAudio): off unless the app runs its Snapcast server.
++// Satellites (Engine.satelliteAudio): off unless the app runs its Sendspin server. With only,
++// this device plays silence: AAudio keeps running, its clock still paces the satellites.
 +JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_relayAudio(
-+    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jboolean on) {
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jboolean on,
++    jboolean only) {
++  satellites_only = on && only;
 +  relaying = on;
 +}
 +
@@ -88,18 +95,19 @@ index 75513ce..468fbe2 100644
 +// From the aaudio backend's play(), on the player thread: 2-channel S16 frames, the first heard
 +// at playtime (Shairport's clock). Java gets that time on its own clock, System.nanoTime().
 +// No frames: a flush (pause, skip, stop; maybe from another thread), satellites drop theirs.
-+void android_relay(const void *buf, int frames, int rate, uint64_t playtime) {
++// Returns 1 when only the satellites play: the caller silences its copy.
++int android_relay(const void *buf, int frames, int rate, uint64_t playtime) {
 +  if (!relaying)
-+    return;
++    return 0;
 +  int64_t heard_at = (int64_t)(playtime - get_absolute_time_in_ns()) + now_ns(CLOCK_MONOTONIC);
 +  JNIEnv *env = NULL;
 +  if ((*java_vm)->GetEnv(java_vm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
 +    if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) != JNI_OK)
-+      return;
++      return satellites_only;
 +    pthread_setspecific(relay_thread, env); // detach_relay_thread() when the thread exits
 +  }
 +  if (env == NULL)
-+    return;
++    return satellites_only;
 +  jsize length = frames * 4;
 +  jbyteArray pcm = (*env)->NewByteArray(env, length);
 +  if (pcm != NULL) {
@@ -113,26 +121,28 @@ index 75513ce..468fbe2 100644
 +    (*env)->ExceptionDescribe(env);
 +    (*env)->ExceptionClear(env);
 +  }
++  return satellites_only;
 +}
 +
  // mDNS backend "android": Engine.mdnsPublish() registers each service with NsdManager, which has
  // no TXT update, so a publish replaces the service of the same type.
  
 diff --git a/audio_aaudio.c b/audio_aaudio.c
-index b459034..a4ab3fc 100644
+index b459034..1ef7aa0 100644
 --- a/audio_aaudio.c
 +++ b/audio_aaudio.c
-@@ -78,6 +78,9 @@ static int32_t rate, channels;
+@@ -78,6 +78,10 @@ static int32_t rate, channels;
  static int running;
  static int64_t frames_written;
  
-+// android.c: hands the frames to the app's Snapcast server (satellites) when it runs.
-+void android_relay(const void *buf, int frames, int rate, uint64_t playtime);
++// android.c: hands the frames to the app's Sendspin server (satellites) when it runs; 1 when
++// only the satellites play.
++int android_relay(const void *buf, int frames, int rate, uint64_t playtime);
 +
  static const char *result_text(aaudio_result_t result) {
    return p_AAudio_convertResultToText ? p_AAudio_convertResultToText(result) : "?";
  }
-@@ -119,9 +122,11 @@ static int open_stream(void) {
+@@ -119,9 +123,11 @@ static int open_stream(void) {
    p_AAudioStreamBuilder_setSampleRate(builder, rate);
    p_AAudioStreamBuilder_setChannelCount(builder, channels);
    p_AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
@@ -147,7 +157,7 @@ index b459034..a4ab3fc 100644
    if (p_AAudioStreamBuilder_setUsage)
      p_AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_MEDIA);
    if (p_AAudioStreamBuilder_setContentType)
-@@ -181,8 +186,11 @@ static int configure(int32_t requested_encoded_format, char **channel_map) {
+@@ -181,8 +187,12 @@ static int configure(int32_t requested_encoded_format, char **channel_map) {
  }
  
  static int play(void *buf, int frames, __attribute__((unused)) int sample_type,
@@ -155,13 +165,14 @@ index b459034..a4ab3fc 100644
 -                __attribute__((unused)) uint64_t playtime) {
 +                __attribute__((unused)) uint32_t timestamp, uint64_t playtime) {
 +  // Before the write blocks, so satellites get the frames as early as AAudio does. Timed
-+  // frames only: untimed ones are silence while waiting for the first frame.
-+  if (playtime != 0 && frames > 0)
-+    android_relay(buf, frames, rate, playtime);
++  // frames only: untimed ones are silence while waiting for the first frame. Satellites only:
++  // AAudio plays zeros, so its clock keeps pacing Shairport (and the satellites).
++  if (playtime != 0 && frames > 0 && android_relay(buf, frames, rate, playtime))
++    memset(buf, 0, (size_t)frames * channels * 2);
    int response = 0;
    pthread_mutex_lock_and_cleanup_push(&aaudio_mutex);
    if (stream == NULL && current_encoded_output_format != 0)
-@@ -234,6 +242,7 @@ static int delay(long *the_delay) {
+@@ -234,6 +244,7 @@ static int delay(long *the_delay) {
  // ponytail: close instead of pause+flush, so frames_written and the timestamp position both
  // restart at zero; reopening costs a few ms per flush (track skip, pause).
  static void flush(void) {

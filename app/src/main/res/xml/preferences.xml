@@ -45,6 +45,11 @@
             android:key="satellites"
             android:summary="@string/satellites_summary"
             android:title="@string/satellites_title" />
+        <SwitchPreference
+            android:dependency="satellites"
+            android:key="satellites_only"
+            android:summary="@string/satellites_only_summary"
+            android:title="@string/satellites_only_title" />
         <!-- Summary: MainActivity, from EngineStatus. -->
         <Preference
             android:key="satellites_list"

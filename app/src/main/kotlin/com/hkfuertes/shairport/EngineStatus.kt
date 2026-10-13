@@ -31,11 +31,11 @@ object EngineStatus {
         private set
     @Volatile var album: String? = null
         private set
-    /** Snapcast clients connected to the engine's Satellites server. */
+    /** Sendspin players connected to the engine's Satellites server. */
     @Volatile var satellites: List<Satellite> = emptyList()
         private set
 
-    /** [name]: the client's HostName; [client]: its ClientName and Version ("Snapclient 0.31.0"). */
+    /** [name]: the player's name; [client]: its product and software version ("Linux 8.0.0"). */
     class Satellite(val name: String, val address: String, val client: String)
 
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
@@ -74,12 +74,13 @@ object EngineStatus {
         playing(false)
     }
 
-    /** Their Hello messages: JSON, from a client of any make, so every field is optional. */
+    /** Their client/hello messages: JSON, from a player of any make, so every field is optional. */
     fun satellites(addresses: List<String>, hellos: List<String>) {
         satellites = addresses.zip(hellos) { address, hello ->
             val json = runCatching { JSONObject(hello) }.getOrElse { JSONObject() }
-            val client = listOf(json.optString("ClientName"), json.optString("Version")).filter { it.isNotBlank() }
-            Satellite(json.optString("HostName").ifBlank { address }, address, client.joinToString(" "))
+            val device = json.optJSONObject("device_info") ?: JSONObject()
+            val client = listOf(device.optString("product_name"), device.optString("software_version")).filter { it.isNotBlank() }
+            Satellite(json.optString("name").ifBlank { address }, address, client.joinToString(" "))
         }
         changed()
     }
