@@ -22,6 +22,8 @@ object Prefs {
     const val SATELLITES = "satellites"
     /** With satellites on: only they play, this device stays silent. */
     const val SATELLITES_ONLY = "satellites_only"
+    /** The sender's track as a media notification (NowPlaying.kt); no engine restart. */
+    const val NOW_PLAYING = "now_playing"
 
     /** What classic AirPlay advertises: the model choice only applies to AirPlay 2. */
     const val GENERIC_MODEL = "ShairportSync"
@@ -37,6 +39,7 @@ object Prefs {
         LINK_STREAM_VOLUME to true,
         SATELLITES to false,
         SATELLITES_ONLY to false,
+        NOW_PLAYING to false,
     )
 
     /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Sendspin volume. */

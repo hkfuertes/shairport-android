@@ -11,15 +11,19 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.SharedPreferences
+import android.media.MediaMetadata
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.Message
 import android.os.Messenger
 import android.os.SystemClock
 import android.util.Log
@@ -38,7 +42,11 @@ class ReceiverService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var volumeSync: VolumeSync
+    private lateinit var nowPlaying: NowPlaying
+    private val main = Handler(Looper.getMainLooper())
     @Volatile private var engine: ServiceConnection? = null
+    /** The engine's binder: the way to its remote control. */
+    @Volatile private var engineControl: Messenger? = null
     private var engineConfig: String? = null
     private var engineSatellites: Pair<Boolean, Boolean>? = null // (on, only)
     /** Retry unavailable root on the next receiver start, or an explicit AirPlay 2 request. */
@@ -50,6 +58,16 @@ class ReceiverService : Service() {
 
     private val engineMessages = Messenger(Handler(Looper.getMainLooper()) { message ->
         when (message.what) {
+            EngineService.MSG_NOW_PLAYING -> {
+                val data = message.data
+                val track = data.takeIf { it.getInt(NowPlaying.KEY_STATE) >= PlaybackState.STATE_PAUSED }
+                EngineStatus.track(
+                    track?.getString(MediaMetadata.METADATA_KEY_TITLE),
+                    track?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                    track?.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                )
+                nowPlaying.update(data)
+            }
             EngineService.MSG_ADVERTISED -> EngineStatus.advertised(message.arg1 != 0, message.arg2 != 0)
             EngineService.MSG_SATELLITES -> EngineStatus.satellites(
                 message.data.getStringArrayList(EngineService.KEY_ADDRESSES).orEmpty(),
@@ -80,6 +98,7 @@ class ReceiverService : Service() {
     /** Applies setting changes from any source (settings screen or adb's SettingsReceiver). */
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
         if (key == Prefs.RECEIVER_ENABLED && !preferences.getBoolean(Prefs.RECEIVER_ENABLED, true)) stopSelf()
+        else if (key == Prefs.NOW_PLAYING) nowPlaying.enabled = preferences.getBoolean(Prefs.NOW_PLAYING, false)
         else onWorker { startEngine() } // no-op unless the resulting configuration changed
     }
 
@@ -89,6 +108,8 @@ class ReceiverService : Service() {
         createNotificationChannel()
         acquireWifiLocks()
         volumeSync = VolumeSync(this).also { it.start() }
+        nowPlaying = NowPlaying(this, ::remote)
+        nowPlaying.enabled = Prefs.get(this).getBoolean(Prefs.NOW_PLAYING, false)
         EngineStatus.wifiAddress(wifiAddress())
         getSystemService(ConnectivityManager::class.java).registerNetworkCallback(
             NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(),
@@ -101,6 +122,10 @@ class ReceiverService : Service() {
             Prefs.get(this).edit().putBoolean(Prefs.RECEIVER_ENABLED, false).commit()
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (intent?.action == NowPlaying.ACTION_REMOTE) { // the now playing notification's buttons
+            remote(intent.getIntExtra(NowPlaying.EXTRA_COMMAND, -1))
+            return START_STICKY
         }
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_starting)))
         onWorker { startEngine() }
@@ -121,12 +146,18 @@ class ReceiverService : Service() {
             stopRoot(watcher)
         }
         volumeSync.stop()
+        nowPlaying.release()
         multicastLock?.takeIf { it.isHeld }?.release()
         wifiLock?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** A [NowPlaying] command for the engine's remote control (Engine.remote checks it). */
+    private fun remote(command: Int) {
+        runCatching { engineControl?.send(Message.obtain(null, EngineService.MSG_REMOTE_COMMAND, command, 0)) }
+    }
 
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
@@ -167,7 +198,10 @@ class ReceiverService : Service() {
 
         val startedAt = SystemClock.elapsedRealtime()
         val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, service: IBinder) = EngineStatus.shairportRunning(true)
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                engineControl = Messenger(service)
+                EngineStatus.shairportRunning(true)
+            }
             override fun onServiceDisconnected(name: ComponentName) = onWorker { engineDied(this, startedAt) }
         }
         val intent = Intent(this, EngineService::class.java)
@@ -209,8 +243,10 @@ class ReceiverService : Service() {
     private fun stopEngine() {
         engine?.let { runCatching { unbindService(it) } } // EngineService.onDestroy stops Shairport
         engine = null
+        engineControl = null
         engineConfig = null
         EngineStatus.engineStopped()
+        main.post { nowPlaying.update(Bundle.EMPTY) } // the engine says nothing more
         awaitEngineExit()
         stopRoot(rootHelper)
     }
@@ -311,7 +347,8 @@ class ReceiverService : Service() {
         };
         metadata = {
           enabled = "yes";
-          include_cover_art = "no";
+          include_cover_art = "yes"; // for NowPlaying, through the metadata hub (patch 0010)
+          cover_art_cache_directory = ${quote(File(cacheDir, "coverart").path)};
           socket_address = "127.0.0.1";
           socket_port = ${volumeSync.port};
         };

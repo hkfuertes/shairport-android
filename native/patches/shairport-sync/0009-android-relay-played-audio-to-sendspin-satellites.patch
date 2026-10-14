@@ -25,8 +25,8 @@ pthread key destructor when it exits.
 Upstream: not submitted (Android only)
 Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 ---
- android.c      | 63 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
- audio_aaudio.c | 21 +++++++++++++++-----
+ android.c      | 63 ++++++++++++++++++++++++++++++++++++++++++++++++--
+ audio_aaudio.c | 21 +++++++++++++----
  2 files changed, 77 insertions(+), 7 deletions(-)
 
 diff --git a/android.c b/android.c
@@ -128,7 +128,7 @@ index 75513ce..b3b93e6 100644
  // no TXT update, so a publish replaces the service of the same type.
  
 diff --git a/audio_aaudio.c b/audio_aaudio.c
-index b459034..1ef7aa0 100644
+index d85a273..e823cf6 100644
 --- a/audio_aaudio.c
 +++ b/audio_aaudio.c
 @@ -78,6 +78,10 @@ static int32_t rate, channels;

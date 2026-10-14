@@ -11,9 +11,11 @@ The Dockerfile's `engine-src` stage applies each directory's patches, in file-na
 - `0007`: `aaudio` output backend (`--with-aaudio`): plays through AAudio (`libaaudio.so`, loaded at run time) and reports the real output delay from `AAudioStream_getTimestamp()`, so Shairport keeps sync as with ALSA.
 - `0008`: Shairport Sync as the app's JNI library (`android.c`: `main()` becomes `shairport_main()`, stderr goes to logcat, the process ends with `_exit()` after Shairport's own cleanup) and the `android` mDNS backend, which registers the services with the app's `NsdManager`. `get_device_id()` no longer waits 10 s for a MAC address, which an app can never read.
 - `0009`: the `aaudio` backend hands every timed buffer, with the time Shairport says it is heard, to the app's Sendspin server for satellites (`Engine.satelliteAudio`, on Java's clock), and an empty one on a flush. The AAudio buffer holds the whole desired length, the satellites' head start. With satellites only, AAudio gets zeros instead: silent here, same clock. Off unless the app turns it on (`Engine.relayAudio`).
+- `0010`: `--with-remote-control`: Shairport's metadata hub and remote control without D-Bus, MPRIS or MQTT. A hub watcher hands the track, its cover art file, the player's state, duration and position, the AirPlay volume and whether the session is AirPlay 2 to `Engine.nowPlaying`; `Engine.remoteCommand` and `Engine.remoteVolume` drive the sender, AirPlay 2 only (classic AirPlay's DACP needs mDNS browsing). The DACP monitor gets the cancellation check Bionic needs.
 
 ## nqptp
 
 - `0001`–`0002`: Bionic library discovery and shared-memory compatibility, including `NQPTP_SHM_DIRECTORY` for Android app storage.
+- `0003`: the default shared-memory interface is created at start, as up to 1.2.8: 1.2.9 waits for Shairport's first message, and the app's root script waits for the file.
 
 Never copy code from `echo-airplay2`: its licence forbids commercial use.

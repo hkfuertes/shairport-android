@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 16:00:00 +0200
+Subject: [PATCH] android: now playing and remote control through the metadata hub
+
+--with-remote-control builds the metadata hub, the DACP client and remote
+control (remote/remote.c) without D-Bus, MPRIS or MQTT: the app is the host
+program that uses them.
+
+android.c registers a metadata hub watcher that hands the track (title,
+artist, album, cover art file), the player's state, the duration, the
+position the sender last reported (AirPlay 2's now playing info, or classic
+AirPlay's progress) and the AirPlay volume to Engine.nowPlaying(), for the
+app's now playing notification and status. The app carries the position on.
+
+Engine.remoteCommand() and Engine.remoteVolume() call remote_simple_command()
+and remote_set_airplay_volume(): AirPlay 2 only, through its event channel.
+Classic AirPlay's DACP needs the sender's _dacp._tcp service, which the
+android mDNS backend doesn't browse.
+
+dacp.c's monitor thread waits in pthread_cond_timedwait(), no cancellation
+point on Bionic (0002): it checks after each wait, or Shairport's exit would
+hang joining it.
+
+Upstream: not submitted (Android only)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ android.c    | 68 ++++++++++++++++++++++++++++++++++++++++++++++++++--
+ configure.ac |  4 +++-
+ dacp.c       |  1 +
+ 3 files changed, 70 insertions(+), 3 deletions(-)
+
+diff --git a/android.c b/android.c
+index b3b93e6..d08a50d 100644
+--- a/android.c
++++ b/android.c
+@@ -20,6 +20,8 @@
+ 
+ #include "common.h"
+ #include "mdns.h"
++#include "metadata/hub.h"
++#include "remote/remote.h"
+ #include "utilities/exit.h"
+ 
+ int shairport_main(int argc, char **argv);
+@@ -27,7 +29,8 @@ extern volatile sig_atomic_t exit_status; // utilities/exit.c
+ 
+ static JavaVM *java_vm;
+ static jclass engine_class;
+-static jmethodID publish_method, unpublish_method, relay_method;
++static jmethodID publish_method, unpublish_method, relay_method, now_playing_method;
++static void now_playing(struct metadata_bundle *m);
+ static pthread_key_t relay_thread;
+ static volatile int relaying, satellites_only;
+ static pthread_t log_thread;
+@@ -53,9 +56,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
+       (*env)->GetStaticMethodID(env, engine, "mdnsPublish", "(Ljava/lang/String;[BI[[B)V");
+   unpublish_method = (*env)->GetStaticMethodID(env, engine, "mdnsUnpublish", "()V");
+   relay_method = (*env)->GetStaticMethodID(env, engine, "satelliteAudio", "([BIJ)V");
++  now_playing_method = (*env)->GetStaticMethodID(env, engine, "nowPlaying", "([B[B[B[BIJJDZ)V");
+   if (pthread_key_create(&relay_thread, detach_relay_thread) != 0)
+     return JNI_ERR;
+-  return publish_method && unpublish_method && relay_method ? JNI_VERSION_1_6 : JNI_ERR;
++  return publish_method && unpublish_method && relay_method && now_playing_method ? JNI_VERSION_1_6
++                                                                                 : JNI_ERR;
+ }
+ 
+ // App processes have stdout and stderr on /dev/null; Shairport logs to stderr.
+@@ -93,6 +98,7 @@ JNIEXPORT jint JNICALL Java_com_hkfuertes_shairport_Engine_run(JNIEnv *env,
+         pthread_create(&log_thread, NULL, forward_log, (void *)(intptr_t)fds[0]) == 0;
+   }
+   atexit(exit_now);
++  add_metadata_watcher(now_playing);
+   int argc = (*env)->GetArrayLength(env, arguments);
+   char **argv = calloc(argc + 1, sizeof(char *));
+   for (int i = 0; i < argc; i++) {
+@@ -248,3 +254,61 @@ mdns_backend mdns_android = {.name = "android",
+                              .mdns_dacp_monitor_start = NULL,
+                              .mdns_dacp_monitor_set_id = NULL,
+                              .mdns_dacp_monitor_stop = NULL};
++
++// Now playing (Engine.nowPlaying): the metadata hub's watcher, on whichever thread changed the
++// hub, with it locked. The position is the track's when the sender last said, which Android
++// carries on: AirPlay 2's now playing info, or classic AirPlay's progress (RTP frames, 44.1 kHz).
++// -1: unknown. principal_conn's lock only as a try: waiting for it with the hub's held could deadlock.
++
++static jbyteArray bytes_or_null(JNIEnv *env, const char *text) {
++  return text != NULL ? bytes(env, text) : NULL;
++}
++
++static void now_playing(struct metadata_bundle *m) {
++  int attached;
++  JNIEnv *env = attach(&attached);
++  if (env == NULL)
++    return;
++  jlong duration = -1, position = -1;
++  if (m->npi.songtime_in_microseconds.valid)
++    duration = (jlong)(m->npi.songtime_in_microseconds.value / 1000);
++  else if (m->progress_string != NULL)
++    duration = (jlong)(uint32_t)(m->progress_last_timestamp - m->progress_first_timestamp) *
++               1000 / 44100;
++  if (m->npi.elapsedTimeOnReceiptOfNowPlayingInfo.valid)
++    position = (jlong)(m->npi.elapsedTimeOnReceiptOfNowPlayingInfo.value / 1000000);
++  else if (m->progress_string != NULL)
++    position = (jlong)(uint32_t)(m->progress_current_timestamp - m->progress_first_timestamp) *
++               1000 / 44100;
++  static jboolean airplay_2; // the remote control's sessions; watchers run one at a time
++  if (pthread_rwlock_tryrdlock(&principal_conn_lock) == 0) {
++    airplay_2 = principal_conn != NULL && principal_conn->airplay_type == ap_2;
++    pthread_rwlock_unlock(&principal_conn_lock);
++  }
++  jbyteArray title = bytes_or_null(env, m->npi.track_name);
++  jbyteArray artist = bytes_or_null(env, m->npi.artist_name);
++  jbyteArray album = bytes_or_null(env, m->npi.album_name);
++  jbyteArray artwork = bytes_or_null(env, m->npi.cover_art_pathname); // a file:// URI
++  (*env)->CallStaticVoidMethod(env, engine_class, now_playing_method, title, artist, album, artwork,
++                               (jint)m->player_state, duration, position,
++                               (jdouble)m->airplay_volume, airplay_2);
++  (*env)->DeleteLocalRef(env, title);
++  (*env)->DeleteLocalRef(env, artist);
++  (*env)->DeleteLocalRef(env, album);
++  (*env)->DeleteLocalRef(env, artwork);
++  detach(env, attached);
++}
++
++// The sender's remote control, from the app's now playing notification and Android's volume:
++// AirPlay 2 only (its event channel). Classic AirPlay's DACP needs mDNS browsing, which the
++// android backend doesn't do. No session: nothing happens.
++
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_remoteCommand(
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jint command) {
++  remote_simple_command((simple_command_t)command);
++}
++
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_remoteVolume(
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jdouble volume) {
++  remote_set_airplay_volume(volume);
++}
+diff --git a/configure.ac b/configure.ac
+index c956045..9eb9a1e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -400,7 +400,9 @@ if test "x$with_mqtt_client" = "xyes" && test "x$with_avahi" != "xyes" ; then
+   AC_MSG_WARN([MQTT needs Avahi for remote control functionality. With the current configuration settings, only metadata publishing will be supported.])
+ fi
+ 
+-if test "x$with_mpris_interface" = "xyes" || test "x$with_dbus_interface" = "xyes" || test "x$with_mqtt_client" = "xyes" ; then
++# Android: the metadata hub and remote control without D-Bus, MPRIS or MQTT (the app's JNI library).
++AC_ARG_WITH([remote-control],[AS_HELP_STRING([--with-remote-control],[include the metadata hub, the DACP client and remote control, for a host program to use])])
++if test "x$with_mpris_interface" = "xyes" || test "x$with_dbus_interface" = "xyes" || test "x$with_mqtt_client" = "xyes" || test "x$with_remote_control" = "xyes" ; then
+   REQUESTED_EXTENDED_METADATA_AND_REMOTE_CONTROL_SUPPORT=1
+   AC_DEFINE([CONFIG_METADATA_HUB], 1, [Needed by the compiler.])
+   AC_DEFINE([CONFIG_DACP_CLIENT], 1, [DACP client needed for extended metadata support.])
+diff --git a/dacp.c b/dacp.c
+index d633b70..51d58ed 100644
+--- a/dacp.c
++++ b/dacp.c
+@@ -544,6 +544,7 @@ void *dacp_monitor_thread_code(__attribute__((unused)) void *na) {
+ #ifdef COMPILE_FOR_LINUX_AND_FREEBSD_AND_CYGWIN_AND_OPENBSD
+         result = pthread_cond_timedwait(&dacp_server_information_cv, &dacp_server_information_lock,
+                                         &time_to_wait); // this is a pthread cancellation point
++        pthread_testcancel(); // not on Bionic: the cancel shim only makes the wait return early
+         // debug(1, "result is %d, dacp_server.scan_enable is %d, time_to_wait_for_wakeup_ns is %"
+         // PRId64 ".", result, dacp_server.scan_enable, time_to_wait_for_wakeup_ns);
+ 

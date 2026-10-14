@@ -1,6 +1,8 @@
---- a/activity_monitor.c	2026-09-26 04:45:44.648521925 +0200
-+++ b/activity_monitor.c	2026-09-26 04:45:44.664522021 +0200
-@@ -164,15 +164,21 @@
+diff --git a/activity_monitor.c b/activity_monitor.c
+index fb8473e..0e3e050 100644
+--- a/activity_monitor.c
++++ b/activity_monitor.c
+@@ -163,15 +163,21 @@ void *activity_monitor_thread_code(void *arg) {
      switch (state) {
      case am_inactive:
        debug(2, "am_state: am_inactive");
@@ -24,7 +26,7 @@
  
        // if it's not already am_inactive, the it should be beginning to time out...
        if (state != am_inactive) {
-@@ -202,6 +208,7 @@
+@@ -201,6 +207,7 @@ void *activity_monitor_thread_code(void *arg) {
  #ifdef COMPILE_FOR_LINUX_AND_FREEBSD_AND_CYGWIN_AND_OPENBSD
          rc = pthread_cond_timedwait(&activity_monitor_cv, &activity_monitor_mutex,
                                      &time_for_wait); // this is a pthread cancellation point
@@ -32,9 +34,11 @@
  #endif
  #ifdef COMPILE_FOR_OSX
          rc = pthread_cond_timedwait_relative_np(&activity_monitor_cv, &activity_monitor_mutex,
---- a/metadata/pc_queue.c	2026-09-26 04:45:44.656521973 +0200
-+++ b/metadata/pc_queue.c	2026-09-26 04:45:44.672522069 +0200
-@@ -142,7 +142,9 @@
+diff --git a/metadata/pc_queue.c b/metadata/pc_queue.c
+index e216558..e9fdc5e 100644
+--- a/metadata/pc_queue.c
++++ b/metadata/pc_queue.c
+@@ -142,7 +142,9 @@ int pc_queue_get_item(pc_queue *the_queue, void *the_stuff) {
        debug(1, "metadata queue \"%s\": error locking for pc_queue_get_item", the_queue->name);
      pthread_cleanup_push(pc_queue_cleanup_handler, (void *)the_queue);
      while (the_queue->count == 0) {
@@ -44,8 +48,22 @@
        if (rc)
          debug(1, "metadata queue \"%s\": error waiting for item to be added", the_queue->name);
      }
---- a/rtp.c	2026-09-26 04:45:44.644521901 +0200
-+++ b/rtp.c	2026-09-26 04:45:44.664522021 +0200
+diff --git a/player.c b/player.c
+index 1be6975..2a47b15 100644
+--- a/player.c
++++ b/player.c
+@@ -2789,6 +2789,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn, int resync_requested) {
+         // if (rc)
+         debug(3, "pthread_cond_timedwait returned error code %d.", rc);
+       // debug(1, "waited");
++      pthread_testcancel(); // not on Bionic: a stopped session would wait here for good
+ #endif
+ #ifdef COMPILE_FOR_OSX
+       uint64_t sec = time_to_wait_for_wakeup_ns / 1000000000;
+diff --git a/rtp.c b/rtp.c
+index fd13916..4f51548 100644
+--- a/rtp.c
++++ b/rtp.c
 @@ -64,6 +64,18 @@
  #include "FFTConvolver/convolver.h"
  #endif
@@ -65,7 +83,7 @@
  struct Nvll {
    char *name;
    double value;
-@@ -212,7 +224,12 @@
+@@ -199,7 +211,12 @@ void *rtp_audio_receiver(void *arg) {
  
    ssize_t nread;
    while (1) {
@@ -78,7 +96,7 @@
  
      uint64_t local_time_now_ns = get_absolute_time_in_ns();
      if (time_of_previous_packet_ns) {
-@@ -336,7 +353,12 @@
+@@ -323,7 +340,12 @@ void *rtp_control_receiver(void *arg) {
    uint32_t sync_rtp_timestamp;
    ssize_t nread;
    while (1) {
@@ -91,7 +109,7 @@
      if (nread >= 0) {
        if ((config.diagnostic_drop_packet_fraction == 0.0) ||
            (drand48() > config.diagnostic_drop_packet_fraction)) {
-@@ -658,6 +680,7 @@
+@@ -646,6 +668,7 @@ void *rtp_timing_sender(void *arg) {
        usleep(300000); // these are thread cancellation points
      else
        usleep(3000000);
@@ -99,7 +117,7 @@
    }
    debug(3, "rtp_timing_sender thread interrupted. This should never happen.");
    pthread_cleanup_pop(0); // don't execute anything here.
-@@ -757,7 +780,12 @@
+@@ -745,7 +768,12 @@ void *rtp_timing_receiver(void *arg) {
    // double stat_M2 = 0.0;
  
    while (1) {
@@ -112,7 +130,7 @@
      if (conn->udp_clock_is_initialised == 0) {
        debug(2, "AP1 clock receiver thread: initialised.");
        local_to_remote_time_jitter = 0;
-@@ -1619,17 +1647,6 @@
+@@ -1568,17 +1596,6 @@ int32_t decipher_player_put_packet(uint8_t *ciphered_audio_alt, ssize_t nread,
    }
  }
  
@@ -129,14 +147,4 @@
 -#endif
  
  void *rtp_ap2_control_receiver(void *arg) {
-   const int32_t ap2_realttime_stream_latency_fudge_factor = 11025; // seems to bring everything into sync
---- a/player.c
-+++ b/player.c
-@@ -2759,6 +2759,7 @@
-         // if (rc)
-         debug(3, "pthread_cond_timedwait returned error code %d.", rc);
-       // debug(1, "waited");
-+      pthread_testcancel(); // not on Bionic: a stopped session would wait here for good
- #endif
- #ifdef COMPILE_FOR_OSX
-       uint64_t sec = time_to_wait_for_wakeup_ns / 1000000000;
+   const int32_t ap2_realttime_stream_latency_fudge_factor =

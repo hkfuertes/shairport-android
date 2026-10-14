@@ -5,7 +5,7 @@ import org.json.JSONObject
 
 /**
  * Live state of each part of the receiver, shown in the settings screen. Written by
- * ReceiverService (engine process, NQPTP watcher, Wi-Fi) and VolumeSync (Shairport's metadata).
+ * ReceiverService (engine process, its metadata hub, NQPTP watcher, Wi-Fi) and VolumeSync (Shairport's metadata).
  */
 object EngineStatus {
     @Volatile var nqptp = false
@@ -24,7 +24,7 @@ object EngineStatus {
     @Volatile var source: String? = null
         private set
     @Volatile private var sourceName: String? = null
-    /** Current track from Shairport's DAAP metadata (`minm`, `asar`, `asal`), null when unknown. */
+    /** Current track from Shairport's metadata hub (Engine.nowPlaying), null when unknown or stopped. */
     @Volatile var title: String? = null
         private set
     @Volatile var artist: String? = null
@@ -92,22 +92,13 @@ object EngineStatus {
 
     fun playing(playing: Boolean) {
         source = if (playing) sourceName ?: "AirPlay" else null
-        if (!playing) newTrack()
+        if (!playing) track(null, null, null) else changed()
+    }
+
+    fun track(title: String?, artist: String?, album: String?) {
+        this.title = title
+        this.artist = artist
+        this.album = album
         changed()
-    }
-
-    /** `ssnc/mdst` opens a new metadata bundle: forget the previous track's fields. */
-    fun newTrack() {
-        title = null
-        artist = null
-        album = null
-    }
-
-    fun track(code: String, value: String) {
-        when (code) {
-            "minm" -> title = value
-            "asar" -> artist = value
-            "asal" -> album = value
-        }
     }
 }

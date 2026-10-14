@@ -1,5 +1,5 @@
 // Minimal stand-in for Shairport's common.h: only what audio_aaudio.c uses.
-// Macros are copied verbatim from Shairport Sync 5.5.1 common.h.
+// Macros are copied verbatim from Shairport Sync 5.6 common.h.
 #pragma once
 #include <pthread.h>
 #include <stdint.h>

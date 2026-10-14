@@ -1,6 +1,8 @@
---- a/metadata/multicast.c	2026-09-26 02:09:46.673289904 +0200
-+++ b/metadata/multicast.c	2026-09-26 02:09:46.701290087 +0200
-@@ -38,7 +38,7 @@
+diff --git a/metadata/multicast.c b/metadata/multicast.c
+index c7f7245..ab36bb4 100644
+--- a/metadata/multicast.c
++++ b/metadata/multicast.c
+@@ -42,7 +42,7 @@ void metadata_create_multicast_socket(void) {
      } else {
        int buffer_size = METADATA_SNDBUF;
        setsockopt(metadata_sock, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));

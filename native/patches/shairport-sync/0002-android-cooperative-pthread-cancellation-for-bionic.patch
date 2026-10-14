@@ -25,10 +25,10 @@ Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
  8 files changed, 98 insertions(+), 1 deletion(-)
 
 diff --git a/ap2_buffered_audio_processor.c b/ap2_buffered_audio_processor.c
-index 2319abc..e114ce0 100644
+index c9f311d..434c362 100644
 --- a/ap2_buffered_audio_processor.c
 +++ b/ap2_buffered_audio_processor.c
-@@ -212,12 +212,15 @@ void *rtp_buffered_audio_processor(void *arg) {
+@@ -210,12 +210,15 @@ void *rtp_buffered_audio_processor(void *arg) {
    // double requested_lead_time = 0.0; // normal lead time minimum -- maybe  it should be about 0.1
  
    // wait until our timing information is valid
@@ -46,10 +46,10 @@ index 2319abc..e114ce0 100644
      if ((play_enabled == 0) && (conn->ap2_play_enabled != 0)) {
        // play newly started
 diff --git a/ap2_event_receiver.c b/ap2_event_receiver.c
-index f7923a4..39fe7f8 100644
+index 1bbdeac..1d726ec 100644
 --- a/ap2_event_receiver.c
 +++ b/ap2_event_receiver.c
-@@ -81,6 +81,7 @@ void *ap2_event_receiver(void *arg) {
+@@ -202,6 +202,7 @@ void *ap2_event_receiver(void *arg) {
  
      while (1) {
        usleep(100000);
@@ -58,7 +58,7 @@ index f7923a4..39fe7f8 100644
  
      debug(3, "Connection %d: AP2 Event Receiver RTP thread starting \"normal\" exit.",
 diff --git a/common.c b/common.c
-index f041c22..b55d8fd 100644
+index fc0d3e7..baa2b86 100644
 --- a/common.c
 +++ b/common.c
 @@ -41,6 +41,7 @@
@@ -117,11 +117,11 @@ index f041c22..b55d8fd 100644
 +}
 +#endif
 +
- #ifdef CONFIG_CONVOLUTION
- #include <ctype.h>
- #include <sndfile.h>
+ #ifdef CONFIG_OPENSSL
+ #include <openssl/aes.h> // needed for older AES stuff
+ #include <openssl/bio.h> // needed for BIO_new_mem_buf
 diff --git a/rtp.c b/rtp.c
-index ec71896..94dcbbb 100644
+index 1317ab5..fd13916 100644
 --- a/rtp.c
 +++ b/rtp.c
 @@ -39,6 +39,7 @@
@@ -132,7 +132,7 @@ index ec71896..94dcbbb 100644
  #include <stdarg.h>
  #include <stdio.h>
  #include <stdlib.h>
-@@ -1618,6 +1619,18 @@ int32_t decipher_player_put_packet(uint8_t *ciphered_audio_alt, ssize_t nread,
+@@ -1567,6 +1568,18 @@ int32_t decipher_player_put_packet(uint8_t *ciphered_audio_alt, ssize_t nread,
    }
  }
  
@@ -149,9 +149,9 @@ index ec71896..94dcbbb 100644
 +#endif
 +
  void *rtp_ap2_control_receiver(void *arg) {
-   const int32_t ap2_realttime_stream_latency_fudge_factor = 11025; // seems to bring everything into sync
-   //  #include <syscall.h>
-@@ -1634,8 +1647,13 @@ void *rtp_ap2_control_receiver(void *arg) {
+   const int32_t ap2_realttime_stream_latency_fudge_factor =
+       11025; // seems to bring everything into sync
+@@ -1584,8 +1597,13 @@ void *rtp_ap2_control_receiver(void *arg) {
      socklen_t from_sock_addr_length = sizeof(SOCKADDR);
      memset(&from_sock_addr, 0, sizeof(SOCKADDR));
  
@@ -165,7 +165,7 @@ index ec71896..94dcbbb 100644
      uint64_t time_now = get_absolute_time_in_ns();
      int64_t time_since_start = time_now - start_time;
  
-@@ -1798,7 +1816,12 @@ void *rtp_realtime_audio_receiver(void *arg) {
+@@ -1760,7 +1778,12 @@ void *rtp_realtime_audio_receiver(void *arg) {
    int32_t last_seqno = -1;
    ssize_t nread;
    while (1) {
@@ -179,10 +179,10 @@ index ec71896..94dcbbb 100644
      if (nread > 36) { // 36 is the 12-byte header and and 24-byte footer
        if ((config.diagnostic_drop_packet_fraction == 0.0) ||
 diff --git a/rtsp.c b/rtsp.c
-index 303d3b4..edb4f09 100644
+index 3e66903..a692f40 100644
 --- a/rtsp.c
 +++ b/rtsp.c
-@@ -4020,6 +4020,7 @@ void rtsp_conversation_thread_cleanup_function(void *arg) {
+@@ -3973,6 +3973,7 @@ void rtsp_conversation_thread_cleanup_function(void *arg) {
  
      // give the event receiver a chance to exit normally, if it exists
      if (conn->rtp_event_thread != NULL) {
@@ -191,7 +191,7 @@ index 303d3b4..edb4f09 100644
        pthread_join(*conn->rtp_event_thread, NULL);
        free(conn->rtp_event_thread);
 diff --git a/utilities/buffered_read.c b/utilities/buffered_read.c
-index 2f5a07c..958f484 100644
+index 97d3ffe..ab38bce 100644
 --- a/utilities/buffered_read.c
 +++ b/utilities/buffered_read.c
 @@ -53,6 +53,7 @@ ssize_t buffered_read(buffered_tcp_desc *descriptor, void *buf, size_t count,
@@ -220,12 +220,12 @@ index 2f5a07c..958f484 100644
  
 @@ -148,6 +151,7 @@ void *buffered_tcp_reader(void *arg) {
      if (descriptor->buffer_occupancy == 0)
-       debug(2, "recv of up to %zd bytes with an buffer empty.", bytes_to_request);
+       debug(4, "recv of up to %zd bytes with an buffer empty.", bytes_to_request);
      nread = recv(fd, descriptor->eoq, bytes_to_request, 0);
 +    pthread_testcancel();
-     // debug(1, "Received %d bytes for a buffer size of %d bytes.",nread,
-     // descriptor->buffer_occupancy + nread);
+     // debug(1, "Received %zu bytes for a buffer size of %zd bytes.",nread, descriptor->buffer_occupancy + nread);
      if (pthread_mutex_lock(&descriptor->mutex) != 0)
+       debug(1, "problem with not empty mutex");
 diff --git a/utilities/debug.h b/utilities/debug.h
 index 751bbd2..2470c52 100644
 --- a/utilities/debug.h

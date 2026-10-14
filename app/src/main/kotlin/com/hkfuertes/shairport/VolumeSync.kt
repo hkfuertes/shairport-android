@@ -11,11 +11,9 @@ import kotlin.math.roundToInt
 
 /**
  * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume], Shairport ignores volume
- * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which satellites follow (EngineService). Play state (`snam`,
- * `pbeg`, `pend`, `disc`) and the track (`core` `minm`, `asar`, `asal`) go to [EngineStatus].
- *
- * ponytail: one-way on purpose. Android -> sender is left out until Shairport's AirPlay 2 remote
- * volume reaches a stable release (it is only in development, and multi-room gets it wrong).
+ * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which satellites and the sender follow
+ * (EngineService). Play state (`snam`, `pbeg`, `pend`, `disc`) goes to [EngineStatus]; the track
+ * comes from Shairport's metadata hub (Engine.nowPlaying): AirPlay 2 senders now send it as a plist.
  */
 class VolumeSync(context: Context) {
     private val audio = context.getSystemService(AudioManager::class.java)
@@ -51,8 +49,6 @@ class VolumeSync(context: Context) {
                 "ssnc/snam" -> EngineStatus.senderName(data)
                 "ssnc/pbeg" -> EngineStatus.playing(true)
                 "ssnc/pend", "ssnc/disc" -> EngineStatus.playing(false)
-                "ssnc/mdst" -> EngineStatus.newTrack()
-                "core/minm", "core/asar", "core/asal" -> EngineStatus.track(code, data)
             }
         }
     }
@@ -75,5 +71,9 @@ class VolumeSync(context: Context) {
         fun toIndex(airplayVolume: Double, max: Int): Int =
             if (airplayVolume <= -30.0) 0
             else ((airplayVolume + 30.0) / 30.0 * max).roundToInt().coerceIn(0, max)
+
+        /** [toIndex]'s inverse, for the sender: index 0 mutes. */
+        fun toAirplayVolume(index: Int, max: Int): Double =
+            if (index <= 0) -144.0 else index * 30.0 / max - 30.0
     }
 }

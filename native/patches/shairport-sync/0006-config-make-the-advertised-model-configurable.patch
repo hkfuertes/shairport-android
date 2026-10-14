@@ -15,10 +15,10 @@ Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
  1 file changed, 5 insertions(+)
 
 diff --git a/shairport.c b/shairport.c
-index 8489832..42225e7 100644
+index eca9c3e..3cd90a1 100644
 --- a/shairport.c
 +++ b/shairport.c
-@@ -641,6 +641,11 @@ int parse_options(int argc, char **argv) {
+@@ -701,6 +701,11 @@ int parse_options(int argc, char **argv) {
        if (config_lookup_non_empty_string(config.cfg, "general.name", &str)) {
          raw_service_name = (char *)str;
        }

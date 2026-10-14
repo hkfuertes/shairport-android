@@ -42,6 +42,10 @@
             android:summary="@string/link_stream_volume_summary"
             android:title="@string/link_stream_volume_title" />
         <SwitchPreference
+            android:key="now_playing"
+            android:summary="@string/now_playing_summary"
+            android:title="@string/now_playing_title" />
+        <SwitchPreference
             android:key="satellites"
             android:summary="@string/satellites_summary"
             android:title="@string/satellites_title" />

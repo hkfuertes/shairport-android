@@ -6,12 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.media.MediaMetadata
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.Process
@@ -43,6 +45,58 @@ object Engine {
 
     /** Patch 0009: hand every buffer AAudio plays to [satelliteAudio]; [only]: AAudio plays zeros. */
     @JvmStatic private external fun relayAudio(on: Boolean, only: Boolean)
+
+    /** Patch 0010: the sender's remote control (Shairport's simple_command_t), AirPlay 2 only. */
+    @JvmStatic private external fun remoteCommand(command: Int)
+
+    /** Patch 0010: the sender's volume, AirPlay's -30..0 dB or -144 (mute), AirPlay 2 only. */
+    @JvmStatic private external fun remoteVolume(airplayVolume: Double)
+
+    /** Remote control blocks (AirPlay 2's volume goes in steps, ~0.1 s): one call at a time. */
+    private val remote = Executors.newSingleThreadExecutor()
+
+    /** The sender's volume as Shairport's metadata hub last had it, NaN before. */
+    @Volatile private var airplayVolume = Double.NaN
+
+    /** A [NowPlaying] button or control, from ReceiverService. */
+    fun remote(command: Int) {
+        if (command in NowPlaying.PLAY..NowPlaying.PREVIOUS) remote.execute { remoteCommand(command) }
+    }
+
+    /**
+     * Linked volume (EngineService): Android's music volume becomes the sender's, unless it already
+     * is, as when VolumeSync has just set it from the sender's: no echo.
+     */
+    fun senderVolume(index: Int, max: Int) {
+        val volume = airplayVolume
+        if (volume.isNaN() || VolumeSync.toIndex(volume, max) == index) return
+        remote.execute { remoteVolume(VolumeSync.toAirplayVolume(index, max)) }
+    }
+
+    /**
+     * Patch 0010: Shairport's metadata hub changed (on that Shairport thread). For ReceiverService's
+     * [NowPlaying] and status: [state] is Shairport's play_status_type, [positionMs] where the
+     * sender last said the track was (-1: unknown), [airplay2] whether [remote] reaches the sender.
+     */
+    @JvmStatic
+    fun nowPlaying(
+        title: ByteArray?, artist: ByteArray?, album: ByteArray?, artwork: ByteArray?,
+        state: Int, durationMs: Long, positionMs: Long, airplayVolume: Double, airplay2: Boolean,
+    ) {
+        this.airplayVolume = airplayVolume
+        fun text(bytes: ByteArray?) = bytes?.let { String(it, Charsets.UTF_8) }
+        val data = Bundle().apply {
+            putString(MediaMetadata.METADATA_KEY_TITLE, text(title))
+            putString(MediaMetadata.METADATA_KEY_ARTIST, text(artist))
+            putString(MediaMetadata.METADATA_KEY_ALBUM, text(album))
+            putString(MediaMetadata.METADATA_KEY_ART_URI, text(artwork))
+            putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+            putInt(NowPlaying.KEY_STATE, state)
+            putLong(NowPlaying.KEY_POSITION, positionMs)
+            putBoolean(NowPlaying.KEY_REMOTE, airplay2)
+        }
+        runCatching { status?.send(Message.obtain(null, EngineService.MSG_NOW_PLAYING).apply { this.data = data }) }
+    }
 
     @Volatile private var satellites: Satellites? = null
 
@@ -218,22 +272,29 @@ class EngineService : Service() {
                 identity(),
                 intent.getBooleanExtra(EXTRA_SATELLITES_ONLY, false),
             )
-            if (intent.getBooleanExtra(EXTRA_LINKED_VOLUME, false)) followMusicVolume()
         }
+        if (intent.getBooleanExtra(EXTRA_LINKED_VOLUME, false)) followMusicVolume()
         val arguments = requireNotNull(intent.getStringArrayExtra(EXTRA_ARGUMENTS))
         Thread({ Engine.run(arguments) }, "shairport").start()
-        return Binder()
+        // ReceiverService's way in: the now playing notification's controls.
+        return Messenger(Handler(Looper.getMainLooper()) { message ->
+            if (message.what == MSG_REMOTE_COMMAND) Engine.remote(message.arg1)
+            true
+        }).binder
     }
 
     /**
      * Linked volume: Shairport plays at full scale and VolumeSync sets this device's music volume
-     * from the sender's. Satellites follow that volume, wherever it is set (sender, keys, Home Assistant).
+     * from the sender's. Satellites and the sender (AirPlay 2) follow that volume, wherever it is
+     * set (sender, keys, Home Assistant).
      */
     private fun followMusicVolume() {
         val audio = getSystemService(AudioManager::class.java)
         val update = {
             val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            Engine.satelliteVolume((audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max).roundToInt())
+            val index = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            Engine.satelliteVolume((index * 100f / max).roundToInt())
+            Engine.senderVolume(index, max)
         }
         update()
         // Not in the SDK, but AudioService sends it on every volume change (a protected system broadcast).
@@ -282,7 +343,7 @@ class EngineService : Service() {
         /** The receiver's name: the Sendspin server's too. */
         const val EXTRA_NAME = "name"
         private const val IDENTITY_FILE = "sendspin_identity"
-        /** Satellites play at this device's music volume (the PCM is at full scale). */
+        /** Satellites and the sender follow this device's music volume (the PCM is at full scale). */
         const val EXTRA_LINKED_VOLUME = "linked_volume"
         /** arg1: advertised at all; arg2: as AirPlay 2 (`_airplay._tcp`). */
         const val MSG_ADVERTISED = 1
@@ -290,6 +351,10 @@ class EngineService : Service() {
         const val MSG_SATELLITES = 2
         const val KEY_ADDRESSES = "addresses"
         const val KEY_HELLOS = "hellos"
+        /** data: the track and state from Engine.nowPlaying (MediaMetadata's and [NowPlaying]'s keys). */
+        const val MSG_NOW_PLAYING = 3
+        /** To the engine (its binder's Messenger), arg1: a [NowPlaying] command. */
+        const val MSG_REMOTE_COMMAND = 4
         private const val TAG = "Shairport"
         private var started = false
     }

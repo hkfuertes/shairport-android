@@ -27,7 +27,7 @@ ldflags="-L$prefix/lib -static-libstdc++ -Wl,--as-needed"
 PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=$prefix/lib/pkgconfig \
   CFLAGS='-O2 -fPIC' CPPFLAGS=-I$prefix/include LDFLAGS="$ldflags" LIBS='-lgpg-error -llog' \
   ./configure --build=x86_64-pc-linux-gnu --host="$host" \
-    --with-airplay-2 --with-aaudio --with-metadata-multicast --with-ssl=openssl
+    --with-airplay-2 --with-aaudio --with-metadata-multicast --with-remote-control --with-ssl=openssl
 # Linked as the app's JNI library (patch 0008): only the JNI entry points are exported, so the
 # static OpenSSL, FFmpeg etc. inside can't clash with the app process's own copies.
 printf '{ global: JNI_OnLoad; Java_*; local: *; };\n' > /tmp/jni.map

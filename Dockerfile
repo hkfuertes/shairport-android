@@ -50,8 +50,8 @@ get() {
   echo "$3  /tmp/src.tar.gz" | sha256sum -c -
   mkdir -p "/src/$1" && tar -xzf /tmp/src.tar.gz -C "/src/$1" --strip-components=1 && rm /tmp/src.tar.gz
 }
-get shairport-sync 7bad231c18368dbd26f298577f6210e36e4b0797 eab1fa095e34676d05f68e38d86501d5afa3fc46f83f044859d4d125d526daec
-get nqptp c925f27c1fd12e4033ac477e5a405969b0b0260b d2c2fe5d2574d447a817b1585e82c38f4c98774dac8284e5a3f17e188a3a75f9
+get shairport-sync 9118bbce71f287df2dfdfb5bed3911d92a9fdb0f 5d6ab87edb4fa7737f29758ec3c981a283c4b0676b64a4d2a585c9ce03ebfdac
+get nqptp ab8fb67483411640fd7f1e193889482f2421c37c 3e90e2ea1f52f5c1559a5a46b2cdadb46ac6532a08a34f8cd7e77aa39f6a90c7
 EOF
 COPY native/patches /patches
 # Each project's patches in file-name order; see native/patches/README.md.

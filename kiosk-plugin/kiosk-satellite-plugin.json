@@ -16,7 +16,8 @@
     {"key": "server_name", "type": "string", "title": "Name", "default": "", "description": "Name shown in the AirPlay list. Empty: the Android device name."},
     {"key": "model", "type": "select", "title": "Model", "default": "Generic", "options": ["Generic", "HomePod", "HomePod mini"], "description": "Advertised model: the icon senders show. AirPlay 2 only; classic AirPlay is Generic. HomePod models can't be added to the Home app."},
     {"key": "playback_mode", "type": "select", "title": "Playback mode", "default": "Stereo", "options": ["Stereo", "Mono"]},
-    {"key": "link_stream_volume", "type": "boolean", "title": "Link Android music volume", "default": true, "description": "AirPlay volume also sets Android's music volume, and satellites follow it."},
+    {"key": "link_stream_volume", "type": "boolean", "title": "Link Android music volume", "default": true, "description": "AirPlay volume also sets Android's music volume, and satellites follow it. With AirPlay 2, changing it here changes the sender's too."},
+    {"key": "now_playing", "type": "boolean", "title": "Now playing notification", "default": false, "description": "The track, its artwork and progress in a notification, also on the lock screen. Its controls work with AirPlay 2."},
     {"key": "satellites", "type": "boolean", "title": "Satellites (Sendspin)", "default": false, "description": "Sendspin players play along, in sync."},
     {"key": "satellites_only", "type": "boolean", "title": "Only satellites", "default": false, "description": "With satellites on: they play, this device stays silent."},
     {"key": "start_at_boot", "type": "boolean", "title": "Start at boot", "default": false, "description": "Starts the receiver after every reboot."}

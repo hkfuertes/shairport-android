@@ -15,7 +15,7 @@ Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 
 diff --git a/android-shm-compat.h b/android-shm-compat.h
 new file mode 100644
-index 0000000..467f026
+index 0000000..5a4f129
 --- /dev/null
 +++ b/android-shm-compat.h
 @@ -0,0 +1,34 @@
@@ -54,7 +54,7 @@ index 0000000..467f026
 +
 +#endif
 diff --git a/ptp-utilities.c b/ptp-utilities.c
-index 35dce40..37b5e40 100644
+index c853128..4d785c6 100644
 --- a/ptp-utilities.c
 +++ b/ptp-utilities.c
 @@ -25,6 +25,7 @@
