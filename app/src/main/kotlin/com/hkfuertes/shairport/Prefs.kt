@@ -22,6 +22,8 @@ object Prefs {
     const val SATELLITES = "satellites"
     /** With satellites on: only they play, this device stays silent. */
     const val SATELLITES_ONLY = "satellites_only"
+    /** With satellites on: AirPlay 2 at 44.1 kHz only (no lossless), for players that can't play 48 kHz. */
+    const val SATELLITES_44100 = "satellites_44100"
     /** The sender's track as a media notification (NowPlaying.kt); no engine restart. */
     const val NOW_PLAYING = "now_playing"
 
@@ -39,6 +41,7 @@ object Prefs {
         LINK_STREAM_VOLUME to true,
         SATELLITES to false,
         SATELLITES_ONLY to false,
+        SATELLITES_44100 to false,
         NOW_PLAYING to false,
     )
 

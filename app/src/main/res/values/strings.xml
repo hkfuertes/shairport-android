@@ -51,6 +51,8 @@
     <string name="satellites_title">Satellites (Sendspin)</string>
     <string name="satellites_only_title">Only satellites</string>
     <string name="satellites_only_summary">Satellites play; this device stays silent.</string>
+    <string name="satellites_44100_title">Only 44.1 kHz</string>
+    <string name="satellites_44100_summary">AirPlay 2 at 44.1 kHz, without lossless: for satellites that can\'t play 48 kHz.</string>
     <string name="satellites_list_title">Connected satellites</string>
     <string name="satellites_list_summary">%d connected</string>
     <string name="satellites_server_title">Server address</string>

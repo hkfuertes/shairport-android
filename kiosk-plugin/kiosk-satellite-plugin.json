@@ -20,6 +20,7 @@
     {"key": "now_playing", "type": "boolean", "title": "Now playing notification", "default": false, "description": "The track, its artwork and progress in a notification, also on the lock screen. Its controls work with AirPlay 2."},
     {"key": "satellites", "type": "boolean", "title": "Satellites (Sendspin)", "default": false, "description": "Sendspin players play along, in sync."},
     {"key": "satellites_only", "type": "boolean", "title": "Only satellites", "default": false, "description": "With satellites on: they play, this device stays silent."},
+    {"key": "satellites_44100", "type": "boolean", "title": "Only 44.1 kHz", "default": false, "description": "With satellites on: AirPlay 2 at 44.1 kHz, without lossless, for satellites that can't play 48 kHz."},
     {"key": "start_at_boot", "type": "boolean", "title": "Start at boot", "default": false, "description": "Starts the receiver after every reboot."}
   ],
   "commands": []

@@ -344,6 +344,8 @@ class ReceiverService : Service() {
           volume_range_db = 40; // when Shairport sets the volume: its default 96 dB leaves half the slider near silent
           // Satellites get the audio this far ahead (the AAudio buffer): room for Wi-Fi hiccups.
           audio_backend_buffer_desired_length_in_seconds = ${if (preferences.getBoolean(Prefs.SATELLITES, false)) "1.0" else "0.5"};
+          // Satellites get Shairport's rate: 48 kHz (lossless) leaves 44.1 kHz-only players silent.
+          airplay_2_44100_only_mode = ${quote(if (preferences.getBoolean(Prefs.SATELLITES, false) && preferences.getBoolean(Prefs.SATELLITES_44100, false)) "on" else "off")};
         };
         metadata = {
           enabled = "yes";
