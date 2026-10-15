@@ -108,6 +108,16 @@ COPY --from=engine /out build/jniLibs
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
     ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease
+# Shairport's native code looks up Engine's callbacks by name and signature (android.c): fail
+# here, not on the device, if R8 renamed them (proguard-rules.pro).
+COPY --from=engine-src /src/shairport-sync/android.c /tmp/android.c
+RUN "$ANDROID_HOME/build-tools/35.0.0/dexdump" app/build/outputs/apk/release/app-release.apk \
+      | awk '/\(in Lcom\/hkfuertes\/shairport\/Engine;\)/ {e = 1; next} /\(in L/ {e = 0} e && /name +:/ {n = $3} e && /type +:/ {print n, $3}' > /tmp/engine \
+    && grep -o 'GetStaticMethodID(env, engine, "[^"]*", "[^"]*")' /tmp/android.c | cut -d'"' -f2,4 | tr '"' ' ' > /tmp/jni \
+    && test -s /tmp/jni \
+    && while read name type; do \
+         grep -qxF "'$name' '$type'" /tmp/engine || { echo "R8 renamed Engine.$name$type" >&2; exit 1; }; \
+       done < /tmp/jni
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin

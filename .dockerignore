@@ -1,6 +1,7 @@
 # Only what the Dockerfile copies: keeps the context small and the cache stable.
 *
 !app/build.gradle
+!app/proguard-rules.pro
 !app/src
 !gradle
 !gradlew
