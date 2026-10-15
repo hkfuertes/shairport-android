@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.hkfuertes.shairport.sendspin'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.hkfuertes.shairport.sendspin'
+        minSdk 27 // Shairport's
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.2'
+    }
+
+    buildTypes {
+        release {
+            // The debug key, as Shairport: its audio tap only takes apps signed with its key.
+            signingConfig signingConfigs.debug
+            // Strips the unused BouncyCastle (~7 MB of dex).
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += 'org/bouncycastle/**' // its data files (post-quantum tables, X.509 texts): none used
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    // Sendspin (Satellites.kt): WebSockets both ways, and X25519 + AEADs older Androids lack.
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303' // Android's org.json, on the JVM
+}

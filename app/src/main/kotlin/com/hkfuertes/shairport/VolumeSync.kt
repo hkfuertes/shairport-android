@@ -11,8 +11,8 @@ import kotlin.math.roundToInt
 
 /**
  * Shairport's metadata over loopback UDP ([port]). When [Prefs.linkedVolume], Shairport ignores volume
- * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which satellites and the sender follow
- * (EngineService). Play state (`snam`, `pbeg`, `pend`, `disc`) goes to [EngineStatus]; the track
+ * control (full-scale PCM) and `ssnc/pvol` sets STREAM_MUSIC, which the audio tap's app and the
+ * sender follow (EngineService). Play state (`snam`, `pbeg`, `pend`, `disc`) goes to [EngineStatus]; the track
  * comes from Shairport's metadata hub (Engine.nowPlaying): AirPlay 2 senders now send it as a plist.
  */
 class VolumeSync(context: Context) {

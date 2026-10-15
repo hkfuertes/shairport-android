@@ -18,12 +18,6 @@ object Prefs {
     const val PLAYBACK_MODE = "playback_mode"
     /** When false, AirPlay volume stays inside Shairport and leaves Android's music stream alone. */
     const val LINK_STREAM_VOLUME = "link_stream_volume"
-    /** Sendspin server for satellites (Satellites.kt), on port 8927. */
-    const val SATELLITES = "satellites"
-    /** With satellites on: only they play, this device stays silent. */
-    const val SATELLITES_ONLY = "satellites_only"
-    /** With satellites on: AirPlay 2 at 44.1 kHz only (no lossless), for players that can't play 48 kHz. */
-    const val SATELLITES_44100 = "satellites_44100"
     /** The sender's track as a media notification (NowPlaying.kt); no engine restart. */
     const val NOW_PLAYING = "now_playing"
 
@@ -39,13 +33,10 @@ object Prefs {
         START_AT_BOOT to false,
         PLAYBACK_MODE to "stereo",
         LINK_STREAM_VOLUME to true,
-        SATELLITES to false,
-        SATELLITES_ONLY to false,
-        SATELLITES_44100 to false,
         NOW_PLAYING to false,
     )
 
-    /** Volume on STREAM_MUSIC, not in the PCM; satellites get it as their Sendspin volume. */
+    /** Volume on STREAM_MUSIC, not in the PCM; the audio tap's app gets it as the volume to play at. */
     fun linkedVolume(preferences: SharedPreferences): Boolean = preferences.getBoolean(LINK_STREAM_VOLUME, true)
 
     /** Allowed values of list settings: anything else would break Shairport's configuration. */

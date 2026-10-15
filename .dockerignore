@@ -3,6 +3,9 @@
 !app/build.gradle
 !app/proguard-rules.pro
 !app/src
+!sendspin/build.gradle
+!sendspin/proguard-rules.pro
+!sendspin/src
 !gradle
 !gradlew
 !build.gradle

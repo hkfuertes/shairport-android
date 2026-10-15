@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 12:00:00 +0200
+Subject: [PATCH] android: an audio tap for another app
+
+The aaudio backend's play() hands each timed buffer to android.c before its
+blocking write, with the time Shairport says its first frame is heard
+(should_be_time: the sender's timeline, AirPlay 2's PTP included). When the
+app has handed over a socket (Engine.audioTap), android.c sends it there for
+another app, stamped with that time on CLOCK_MONOTONIC: Java's
+System.nanoTime(), in any process. flush() (pause, skip, stop) sends a flush;
+Engine.tapVolume() the volume to play at (the app keeps the audio at full
+scale when it links the volume to Android's).
+
+The socket must be SOCK_SEQPACKET (another is refused: a stream would merge
+messages), one message per send, in native byte order: a header {int32 type,
+int32 value, int64 time}, then for audio its 16-bit stereo frames. Type 0:
+audio, value its rate; 1: flush; 2: volume, value in percent. Sends never
+block the player thread: a full socket drops the message, and one whose other
+end is gone ends the tap.
+
+The AAudio buffer now holds the whole desired length
+(audio_backend_buffer_desired_length_in_seconds): that is how far ahead the
+other app gets the audio, and the app raises it when asked.
+
+Silent: Engine.audioTap(fd, true) makes android_relay() return 1 and play()
+writes zeros to AAudio instead, so this device is silent while its AAudio
+clock keeps pacing Shairport, and so the other app's audio. Only while the
+tap lasts: when the other app goes away, this device plays again.
+
+Upstream: not submitted (Android only)
+Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
+---
+ android.c      | 83 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ audio_aaudio.c | 21 ++++++++++---
+ 2 files changed, 99 insertions(+), 5 deletions(-)
+
+diff --git a/android.c b/android.c
+index 75513ce..27b9a24 100644
+--- a/android.c
++++ b/android.c
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include <android/log.h>
++#include <errno.h>
+ #include <jni.h>
+ #include <pthread.h>
+ #include <signal.h>
+@@ -15,6 +16,9 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <sys/socket.h>
++#include <sys/uio.h>
++#include <time.h>
+ #include <unistd.h>
+ 
+ #include "common.h"
+@@ -97,6 +101,85 @@ JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_stop(__attribute__((u
+   exit_request(EXIT_SUCCESS);
+ }
+ 
++// The audio tap (Engine.audioTap): another app gets what this device plays, as it plays it,
++// through a SOCK_SEQPACKET socket the app hands over. One message per send, in native byte order:
++// a header {int32 type, int32 value, int64 time}, then for audio its 16-bit stereo frames.
++enum { TAP_AUDIO = 0, TAP_FLUSH = 1, TAP_VOLUME = 2 };
++static pthread_mutex_t tap_lock = PTHREAD_MUTEX_INITIALIZER;
++static int tap_fd = -1, tap_silent, tap_volume = 100;
++
++// Under tap_lock. Never blocks the player: a full socket drops the message; one whose other end
++// is gone ends the tap, and with it the silence.
++static void tap_send(int32_t type, int32_t value, int64_t time, const void *frames, size_t size) {
++  struct {
++    int32_t type, value;
++    int64_t time;
++  } header = {type, value, time};
++  struct iovec parts[2] = {{&header, sizeof(header)}, {(void *)frames, size}};
++  struct msghdr message = {.msg_iov = parts, .msg_iovlen = size > 0 ? 2 : 1};
++  if (sendmsg(tap_fd, &message, MSG_DONTWAIT | MSG_NOSIGNAL) < 0 &&
++      (errno == EPIPE || errno == ECONNRESET || errno == ENOTCONN)) {
++    close(tap_fd);
++    tap_fd = -1;
++  }
++}
++
++// fd: the tap's socket, Shairport's from now on (-1: no tap). silent: this device plays zeros
++// meanwhile; AAudio keeps running, so its clock still paces Shairport, and the other app.
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_audioTap(
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jint fd,
++    jboolean silent) {
++  int type = 0;
++  socklen_t size = sizeof(type);
++  if (fd >= 0 &&
++      (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0 || type != SOCK_SEQPACKET)) {
++    warn("audio tap: refused, not a SOCK_SEQPACKET socket (a stream merges messages)");
++    close(fd);
++    fd = -1;
++  }
++  pthread_mutex_lock(&tap_lock);
++  if (tap_fd >= 0)
++    close(tap_fd);
++  tap_fd = fd;
++  tap_silent = silent;
++  if (tap_fd >= 0)
++    tap_send(TAP_VOLUME, tap_volume, 0, NULL, 0);
++  pthread_mutex_unlock(&tap_lock);
++}
++
++// The volume the other app plays at, in percent: the app's, when it keeps the audio at full scale.
++JNIEXPORT void JNICALL Java_com_hkfuertes_shairport_Engine_tapVolume(
++    __attribute__((unused)) JNIEnv *env, __attribute__((unused)) jclass c, jint percent) {
++  pthread_mutex_lock(&tap_lock);
++  tap_volume = percent;
++  if (tap_fd >= 0)
++    tap_send(TAP_VOLUME, tap_volume, 0, NULL, 0);
++  pthread_mutex_unlock(&tap_lock);
++}
++
++static int64_t now_ns(clockid_t clock) {
++  struct timespec now;
++  clock_gettime(clock, &now);
++  return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
++}
++
++// From the aaudio backend's play(), on the player thread: 2-channel S16 frames, the first heard
++// at playtime (Shairport's clock). The tap gets that time on CLOCK_MONOTONIC: Java's
++// System.nanoTime(), in any process. No frames: a flush (pause, skip, stop; maybe from another
++// thread). Returns 1 while the tap wants this device silent: the caller silences its copy.
++int android_relay(const void *buf, int frames, int rate, uint64_t playtime) {
++  pthread_mutex_lock(&tap_lock);
++  if (tap_fd >= 0 && frames > 0)
++    tap_send(TAP_AUDIO, rate,
++             (int64_t)(playtime - get_absolute_time_in_ns()) + now_ns(CLOCK_MONOTONIC), buf,
++             (size_t)frames * 4);
++  else if (tap_fd >= 0)
++    tap_send(TAP_FLUSH, 0, 0, NULL, 0);
++  int silent = tap_fd >= 0 && tap_silent;
++  pthread_mutex_unlock(&tap_lock);
++  return silent;
++}
++
+ // mDNS backend "android": Engine.mdnsPublish() registers each service with NsdManager, which has
+ // no TXT update, so a publish replaces the service of the same type.
+ 
+diff --git a/audio_aaudio.c b/audio_aaudio.c
+index d85a273..e4687a2 100644
+--- a/audio_aaudio.c
++++ b/audio_aaudio.c
+@@ -78,6 +78,10 @@ static int32_t rate, channels;
+ static int running;
+ static int64_t frames_written;
+ 
++// android.c: hands the frames to the app's audio tap, when another app taps it; 1 when that app
++// wants this device silent.
++int android_relay(const void *buf, int frames, int rate, uint64_t playtime);
++
+ static const char *result_text(aaudio_result_t result) {
+   return p_AAudio_convertResultToText ? p_AAudio_convertResultToText(result) : "?";
+ }
+@@ -119,9 +123,11 @@ static int open_stream(void) {
+   p_AAudioStreamBuilder_setSampleRate(builder, rate);
+   p_AAudioStreamBuilder_setChannelCount(builder, channels);
+   p_AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
+-  // ponytail: ~0.37 s at 44.1 kHz; the deep buffer rides out scheduling hiccups of a root
+-  // process, and delay() reports it exactly, so it costs latency budget, not sync.
+-  p_AAudioStreamBuilder_setBufferCapacityInFrames(builder, 16384);
++  // ponytail: the whole desired length (0.5 s; up to 1 s for an audio tap, its head start). The
++  // deep buffer rides out scheduling hiccups of a root process, and delay() reports it exactly,
++  // so it costs latency budget, not sync.
++  p_AAudioStreamBuilder_setBufferCapacityInFrames(
++      builder, (int32_t)(config.audio_backend_buffer_desired_length * rate));
+   if (p_AAudioStreamBuilder_setUsage)
+     p_AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_MEDIA);
+   if (p_AAudioStreamBuilder_setContentType)
+@@ -181,8 +187,12 @@ static int configure(int32_t requested_encoded_format, char **channel_map) {
+ }
+ 
+ static int play(void *buf, int frames, __attribute__((unused)) int sample_type,
+-                __attribute__((unused)) uint32_t timestamp,
+-                __attribute__((unused)) uint64_t playtime) {
++                __attribute__((unused)) uint32_t timestamp, uint64_t playtime) {
++  // Before the write blocks, so the tap gets the frames as early as AAudio does. Timed frames
++  // only: untimed ones are silence while waiting for the first frame. Silent: AAudio plays
++  // zeros, so its clock keeps pacing Shairport (and the tap's audio).
++  if (playtime != 0 && frames > 0 && android_relay(buf, frames, rate, playtime))
++    memset(buf, 0, (size_t)frames * channels * 2);
+   int response = 0;
+   pthread_mutex_lock_and_cleanup_push(&aaudio_mutex);
+   if (stream == NULL && current_encoded_output_format != 0)
+@@ -234,6 +244,7 @@ static int delay(long *the_delay) {
+ // ponytail: close instead of pause+flush, so frames_written and the timestamp position both
+ // restart at zero; reopening costs a few ms per flush (track skip, pause).
+ static void flush(void) {
++  android_relay(NULL, 0, rate, 0); // the tap's app drops what it holds too
+   pthread_mutex_lock_and_cleanup_push(&aaudio_mutex);
+   close_stream();
+   pthread_cleanup_pop(1);

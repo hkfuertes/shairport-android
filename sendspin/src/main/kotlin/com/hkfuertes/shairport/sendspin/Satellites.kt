@@ -1,4 +1,4 @@
-package com.hkfuertes.shairport
+package com.hkfuertes.shairport.sendspin
 
 import java.net.InetSocketAddress
 import java.net.URI
@@ -19,14 +19,14 @@ import org.json.JSONObject
 
 /**
  * Minimal Sendspin server (github.com/Sendspin/spec) for satellites: Sendspin players (the
- * sendspin CLI, ESPHome, Music Assistant's own players...) play what this device plays, when it
- * plays it. [audio] gets every buffer AAudio is given with the time its first frame is heard
- * (Shairport's should_be_time, on the sender's timeline, AirPlay 2's PTP included) and sends it in
- * 20 ms PCM chunks stamped with that time: players sound with this device and the rest of an
- * AirPlay group.
+ * sendspin CLI, ESPHome, Music Assistant's own players...) play what Shairport plays, when it
+ * plays it. [audio] gets every buffer Shairport's AAudio is given (its audio tap, [Tap]) with the
+ * time its first frame is heard (Shairport's should_be_time, on the sender's timeline, AirPlay 2's
+ * PTP included) and sends it in 20 ms PCM chunks stamped with that time: players sound with the
+ * Shairport device and the rest of an AirPlay group.
  *
  * Both ways in: players that connect to us (`_sendspin-server._tcp`, [port]) and players we
- * [connect] to (`_sendspin._tcp`, found by Engine). Noise KKpsk2 with the Sentinel PSK, i.e.
+ * [connect] to (`_sendspin._tcp`, found by SatellitesService). Noise KKpsk2 with the Sentinel PSK, i.e.
  * unpaired access: ponytail: no pairing (CPace) and no per-player approval, turning Satellites on
  * approves every player that admits unpaired access. Pairing when a player insists on it.
  *
@@ -48,6 +48,7 @@ class Satellites(
     private val lock = Any()
     private val started = CountDownLatch(1)
     @Volatile private var bindError: Exception? = null
+    private var closed = false // under dialers' lock
 
     private val server = object : WebSocketServer(InetSocketAddress(port)) {
         override fun onStart() = started.countDown()
@@ -63,8 +64,8 @@ class Satellites(
     }
 
     /**
-     * Every player's volume, in percent, for those that take it: 100 while the AirPlay volume is in
-     * the PCM; with linked volume, this device's music volume (EngineService).
+     * Every player's volume, in percent, for those that take it: what Shairport's tap says, 100
+     * while the AirPlay volume is in the PCM, the device's music volume with Shairport's linked volume.
      */
     var volume = 100
         set(percent) = synchronized(lock) {
@@ -94,19 +95,20 @@ class Satellites(
     }
 
     /** A player that waits for servers (`_sendspin._tcp`): keep a connection to it while [key] lasts. */
-    fun connect(key: String, uri: URI) {
+    fun connect(key: String, uri: URI) = synchronized(dialers) {
+        if (closed) return // a discovery that outlived us
         dialers.remove(key)?.stop()
         dialers[key] = Dialer(uri).also { it.start() }
     }
 
     fun forget(key: String) {
-        dialers.remove(key)?.stop()
+        synchronized(dialers) { dialers.remove(key)?.stop() }
     }
 
     /**
-     * Shairport's player thread: 16-bit stereo [pcm] whose first frame is heard at [heardAt]
-     * (System.nanoTime()), about 1 s ahead (the AAudio buffer ReceiverService asks for).
-     * No frames: a flush (pause, skip, stop), maybe from another thread.
+     * The tap's reader: 16-bit stereo [pcm] whose first frame is heard at [heardAt]
+     * (System.nanoTime()), about 1 s ahead (the lead SatellitesService asks Shairport for).
+     * No frames: a flush (pause, skip, stop, the tap's end).
      */
     fun audio(pcm: ByteArray, rate: Int, heardAt: Long) = synchronized(lock) {
         if (pcm.isEmpty()) return@synchronized flush()
@@ -154,8 +156,11 @@ class Satellites(
     }
 
     override fun close() {
-        dialers.values.forEach { it.stop() }
-        dialers.clear()
+        synchronized(dialers) {
+            closed = true
+            dialers.values.forEach { it.stop() }
+            dialers.clear()
+        }
         runCatching { server.stop(1000) }
         peers.forEach { it.ws.close() }
     }
@@ -433,7 +438,7 @@ class Satellites(
         /** Sendspin's recommended port and path for servers. */
         const val PORT = 8927
         const val PATH = "/sendspin"
-        private const val FRAME_BYTES = 4 // 16-bit stereo, all the AAudio backend plays
+        private const val FRAME_BYTES = 4 // 16-bit stereo, all Shairport's AAudio backend plays
         private const val DEFAULT_RATE = 44100 // AirPlay's
         private const val MAX_JUMP_NS = 1_000_000L // stuffing moves a buffer by one frame, ~23 us
         private const val LOST_TIMEOUT_S = 10

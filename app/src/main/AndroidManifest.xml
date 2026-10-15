@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The audio tap (AudioTapService): only apps signed with the same key. -->
+    <permission
+        android:name="com.hkfuertes.shairport.permission.AUDIO_TAP"
+        android:protectionLevel="signature" />
 
     <application
         android:allowBackup="false"
@@ -23,10 +27,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".SatellitesActivity"
-            android:exported="false"
-            android:label="@string/satellites_list_title" />
 
         <!-- adb configuration (README); DUMP = adb shell or the system only. -->
         <receiver
@@ -69,6 +69,15 @@
             android:exported="true"
             android:permission="android.permission.DUMP"
             android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".AudioTapService"
+            android:exported="true"
+            android:permission="com.hkfuertes.shairport.permission.AUDIO_TAP">
+            <intent-filter>
+                <action android:name="com.hkfuertes.shairport.AUDIO_TAP" />
+            </intent-filter>
+        </service>
 
         <!-- Shairport Sync (JNI) in a process of its own: one run per process (Engine.kt). -->
         <service

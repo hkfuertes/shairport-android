@@ -9,7 +9,7 @@ shairport_cfg config;
 
 void mutex_unlock(void *arg) { pthread_mutex_unlock((pthread_mutex_t *)arg); }
 
-static int relayed_frames, relayed_rate, relayed_flushes, satellites_only;
+static int relayed_frames, relayed_rate, relayed_flushes, silent;
 static uint64_t relayed_playtime;
 int android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
                   uint64_t playtime) {
@@ -20,7 +20,7 @@ int android_relay(__attribute__((unused)) const void *buf, int frames, int rate,
   relayed_frames = frames;
   relayed_rate = rate;
   relayed_playtime = playtime;
-  return satellites_only;
+  return silent;
 }
 
 void parse_audio_options(__attribute__((unused)) const char *stanza,
@@ -62,26 +62,26 @@ int main(void) {
   static int16_t timed[2 * 441];
   assert(audio_aaudio.play(timed, 441, 0, 1, 123456789) == 0);
   assert(relayed_frames == 441 && relayed_rate == 44100 && relayed_playtime == 123456789);
-  // Satellites only: they get the frames, this device plays zeros (so does this check).
+  // A silent tap: it gets the frames, this device plays zeros (so does this check).
   static int16_t loud[2 * 441];
   for (int i = 0; i < 2 * 441; i++)
     loud[i] = 1000;
-  satellites_only = 1;
+  silent = 1;
   assert(audio_aaudio.play(loud, 441, 0, 1, 123456789) == 0);
   for (int i = 0; i < 2 * 441; i++)
     assert(loud[i] == 0);
-  satellites_only = 0;
+  silent = 0;
   assert(first > 0 && first < 44100 && second > 0 && second < 44100);
   long drift = second - first;
   assert(drift > -8192 && drift < 8192); // within one deep-buffer burst
 
   audio_aaudio.flush(); // closes; the next play() reopens with fresh counters
-  assert(relayed_flushes == 1); // satellites drop what they hold too
+  assert(relayed_flushes == 1); // the tap's app drops what it holds too
   assert(audio_aaudio.delay(&frames) == 0 && frames == 0);
   long reopened = play_seconds(0.5);
   assert(reopened > 0 && reopened < 44100);
 
-  // With satellites the app asks for 1 s (their head start): the buffer must hold it.
+  // An audio tap may ask for 1 s (its head start): the buffer must hold it.
   config.audio_backend_buffer_desired_length = 1.0;
   audio_aaudio.flush();
   long deep = play_seconds(2.0);

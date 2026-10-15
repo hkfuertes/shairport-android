@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Also what Android 14 asks of a connectedDevice foreground service. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Shairport's audio tap. Declared here too, so either app may be installed first: Android
+         only lets apps signed with the same key declare it. -->
+    <permission
+        android:name="com.hkfuertes.shairport.permission.AUDIO_TAP"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.hkfuertes.shairport.permission.AUDIO_TAP" />
+
+    <queries>
+        <package android:name="com.hkfuertes.shairport" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@android:style/Theme.Material">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- adb (README); DUMP = adb shell or the system only. -->
+        <receiver
+            android:name=".SettingsReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.hkfuertes.shairport.sendspin.CONFIGURE_SETTINGS" />
+                <action android:name="com.hkfuertes.shairport.sendspin.GET_STATUS" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Startable by adb/Shizuku (DUMP), as Shairport's receiver. connectedDevice, as
+             Shairport's too: it can start from BOOT_COMPLETED. -->
+        <service
+            android:name=".SatellitesService"
+            android:exported="true"
+            android:foregroundServiceType="connectedDevice"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

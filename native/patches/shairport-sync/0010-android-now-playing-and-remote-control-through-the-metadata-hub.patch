@@ -25,16 +25,16 @@ hang joining it.
 Upstream: not submitted (Android only)
 Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 ---
- android.c    | 68 ++++++++++++++++++++++++++++++++++++++++++++++++++--
+ android.c    | 67 ++++++++++++++++++++++++++++++++++++++++++++++++++--
  configure.ac |  4 +++-
  dacp.c       |  1 +
- 3 files changed, 70 insertions(+), 3 deletions(-)
+ 3 files changed, 69 insertions(+), 3 deletions(-)
 
 diff --git a/android.c b/android.c
-index b3b93e6..d08a50d 100644
+index 27b9a24..83f079b 100644
 --- a/android.c
 +++ b/android.c
-@@ -20,6 +20,8 @@
+@@ -23,6 +23,8 @@
  
  #include "common.h"
  #include "mdns.h"
@@ -43,30 +43,27 @@ index b3b93e6..d08a50d 100644
  #include "utilities/exit.h"
  
  int shairport_main(int argc, char **argv);
-@@ -27,7 +29,8 @@ extern volatile sig_atomic_t exit_status; // utilities/exit.c
+@@ -30,7 +32,8 @@ extern volatile sig_atomic_t exit_status; // utilities/exit.c
  
  static JavaVM *java_vm;
  static jclass engine_class;
--static jmethodID publish_method, unpublish_method, relay_method;
-+static jmethodID publish_method, unpublish_method, relay_method, now_playing_method;
+-static jmethodID publish_method, unpublish_method;
++static jmethodID publish_method, unpublish_method, now_playing_method;
 +static void now_playing(struct metadata_bundle *m);
- static pthread_key_t relay_thread;
- static volatile int relaying, satellites_only;
  static pthread_t log_thread;
-@@ -53,9 +56,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
+ static int log_forwarding;
+ 
+@@ -47,7 +50,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __attribute__((unused)) void *reserved) {
+   publish_method =
        (*env)->GetStaticMethodID(env, engine, "mdnsPublish", "(Ljava/lang/String;[BI[[B)V");
    unpublish_method = (*env)->GetStaticMethodID(env, engine, "mdnsUnpublish", "()V");
-   relay_method = (*env)->GetStaticMethodID(env, engine, "satelliteAudio", "([BIJ)V");
+-  return publish_method && unpublish_method ? JNI_VERSION_1_6 : JNI_ERR;
 +  now_playing_method = (*env)->GetStaticMethodID(env, engine, "nowPlaying", "([B[B[B[BIJJDZ)V");
-   if (pthread_key_create(&relay_thread, detach_relay_thread) != 0)
-     return JNI_ERR;
--  return publish_method && unpublish_method && relay_method ? JNI_VERSION_1_6 : JNI_ERR;
-+  return publish_method && unpublish_method && relay_method && now_playing_method ? JNI_VERSION_1_6
-+                                                                                 : JNI_ERR;
++  return publish_method && unpublish_method && now_playing_method ? JNI_VERSION_1_6 : JNI_ERR;
  }
  
  // App processes have stdout and stderr on /dev/null; Shairport logs to stderr.
-@@ -93,6 +98,7 @@ JNIEXPORT jint JNICALL Java_com_hkfuertes_shairport_Engine_run(JNIEnv *env,
+@@ -85,6 +89,7 @@ JNIEXPORT jint JNICALL Java_com_hkfuertes_shairport_Engine_run(JNIEnv *env,
          pthread_create(&log_thread, NULL, forward_log, (void *)(intptr_t)fds[0]) == 0;
    }
    atexit(exit_now);
@@ -74,7 +71,7 @@ index b3b93e6..d08a50d 100644
    int argc = (*env)->GetArrayLength(env, arguments);
    char **argv = calloc(argc + 1, sizeof(char *));
    for (int i = 0; i < argc; i++) {
-@@ -248,3 +254,61 @@ mdns_backend mdns_android = {.name = "android",
+@@ -272,3 +277,61 @@ mdns_backend mdns_android = {.name = "android",
                               .mdns_dacp_monitor_start = NULL,
                               .mdns_dacp_monitor_set_id = NULL,
                               .mdns_dacp_monitor_stop = NULL};

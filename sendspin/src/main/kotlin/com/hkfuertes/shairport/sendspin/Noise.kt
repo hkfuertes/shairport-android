@@ -1,4 +1,4 @@
-package com.hkfuertes.shairport
+package com.hkfuertes.shairport.sendspin
 
 import java.security.MessageDigest
 import java.security.SecureRandom

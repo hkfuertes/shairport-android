@@ -1,9 +1,10 @@
-package com.hkfuertes.shairport
+package com.hkfuertes.shairport.sendspin
 
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URI
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -136,12 +137,12 @@ class SatellitesTest {
             assertEquals("volume", command.getString("command"))
             assertEquals(100, command.getInt("volume"))
 
-            // Buffers of Shairport's sizes, one stuffed (353): the first only sets the timeline,
-            // the rest open the stream and go out as 20 ms chunks heard at their buffer's time.
+            // Buffers of Shairport's sizes, one stuffed (353), through its tap: the first only sets
+            // the timeline, the rest open the stream and go out as 20 ms chunks heard at their time.
             var heardAt = System.nanoTime() + 400_000_000
             val firstSent = heardAt + 352 * 1_000_000_000L / 44100
             for ((index, frames) in listOf(352, 352, 353, 352, 352, 352, 352, 352).withIndex()) {
-                satellites.audio(ByteArray(frames * 4) { (index + 1).toByte() }, 44100, heardAt)
+                tap(satellites, 0, 44100, heardAt, ByteArray(frames * 4) { (index + 1).toByte() })
                 heardAt += 352 * 1_000_000_000L / 44100 // the stuffed frame doesn't move the timeline
             }
             assertEquals("playing", player.expect("group/update").getString("playback_state"))
@@ -160,7 +161,7 @@ class SatellitesTest {
             assertNear(first.getLong(1) + 20_000, ByteBuffer.wrap(player.next()).getLong(1), 50) // 2 x 882 of 7 x 352
 
             // Flush (pause, skip): the stream ends; the next audio opens a fresh one.
-            satellites.audio(ByteArray(0), 0, 0)
+            tap(satellites, 1, 0, 0)
             player.expect("stream/end")
             assertEquals("stopped", player.expect("group/update").getString("playback_state"))
             val afterFlush = heardAt + 352 * 1_000_000_000L / 44100
@@ -175,7 +176,7 @@ class SatellitesTest {
             assertEquals(afterFlush / 1000, ByteBuffer.wrap(fresh).getLong(1))
 
             // Linked volume: pushed to the players that take it.
-            satellites.volume = 40
+            tap(satellites, 2, 40, 0)
             assertEquals(40, player.expect("server/command").getJSONObject("player").getInt("volume"))
 
             client.closeBlocking()
@@ -261,6 +262,13 @@ class SatellitesTest {
         ServerSocket(0).use { occupied ->
             assertTrue(runCatching { Satellites("x", Noise.privateKey(), port = occupied.localPort) }.isFailure)
         }
+    }
+
+    /** A message as Shairport's tap sends it (patch 0009), in a reused, longer buffer. */
+    private fun tap(satellites: Satellites, type: Int, value: Int, time: Long, frames: ByteArray = ByteArray(0)) {
+        val message = ByteBuffer.allocate(16 + frames.size).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(type).putInt(value).putLong(time).put(frames).array()
+        Tap.deliver(message + ByteArray(7) { 99 }, message.size, satellites)
     }
 
     private fun assertNear(expected: Long, actual: Long, delta: Long) =

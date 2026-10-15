@@ -48,7 +48,6 @@ class ReceiverService : Service() {
     /** The engine's binder: the way to its remote control. */
     @Volatile private var engineControl: Messenger? = null
     private var engineConfig: String? = null
-    private var engineSatellites: Pair<Boolean, Boolean>? = null // (on, only)
     /** Retry unavailable root on the next receiver start, or an explicit AirPlay 2 request. */
     private var rootUnavailable = false
     /** Optional root features; closing stdin restores Wi-Fi and stops NQPTP. */
@@ -69,13 +68,17 @@ class ReceiverService : Service() {
                 nowPlaying.update(data)
             }
             EngineService.MSG_ADVERTISED -> EngineStatus.advertised(message.arg1 != 0, message.arg2 != 0)
-            EngineService.MSG_SATELLITES -> EngineStatus.satellites(
-                message.data.getStringArrayList(EngineService.KEY_ADDRESSES).orEmpty(),
-                message.data.getStringArrayList(EngineService.KEY_HELLOS).orEmpty(),
-            )
         }
         true
     })
+
+    /** The audio tap: its lead and 44.1 kHz restart the engine (config); its socket and silence go live. */
+    private val tapListener: () -> Unit = {
+        onWorker {
+            startEngine()
+            sendTap()
+        }
+    }
 
     /** NsdManager follows address changes by itself; the status shows the current address. */
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
@@ -105,6 +108,7 @@ class ReceiverService : Service() {
     override fun onCreate() {
         super.onCreate()
         Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
+        AudioTapService.addListener(tapListener)
         createNotificationChannel()
         acquireWifiLocks()
         volumeSync = VolumeSync(this).also { it.start() }
@@ -135,6 +139,7 @@ class ReceiverService : Service() {
     override fun onDestroy() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(wifiCallback) }
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        AudioTapService.removeListener(tapListener)
         // Unbind now (a destroyed service can't later); the waiting goes to the worker.
         destroyed = true
         engine?.let { runCatching { unbindService(it) } }
@@ -159,6 +164,18 @@ class ReceiverService : Service() {
         runCatching { engineControl?.send(Message.obtain(null, EngineService.MSG_REMOTE_COMMAND, command, 0)) }
     }
 
+    /** The audio tap's socket (or none) and silence, to the running engine: a copy of the socket. */
+    private fun sendTap() {
+        val tap = AudioTapService.tap
+        val data = Bundle().apply {
+            putParcelable(AudioTapService.KEY_SOCKET, tap?.socket)
+            putBoolean(AudioTapService.KEY_SILENT, tap?.silent == true)
+        }
+        // A socket closed meanwhile (a newer tap) fails here; that newer tap follows.
+        runCatching { engineControl?.send(Message.obtain(null, EngineService.MSG_TAP).apply { this.data = data }) }
+            .onFailure { Log.w(TAG, "Audio tap not handed to the engine", it) }
+    }
+
     /** (Re)starts the engine unless it is already running with the same configuration. */
     private fun startEngine() {
         if (destroyed) return
@@ -166,9 +183,7 @@ class ReceiverService : Service() {
         val name = value(preferences, Prefs.SERVER_NAME)
         val airplay2 = preferences.getBoolean(Prefs.AIRPLAY_2, false)
         val config = config(preferences, name, airplay2)
-        val satellites = preferences.getBoolean(Prefs.SATELLITES, false)
-        val satellitesOnly = satellites && preferences.getBoolean(Prefs.SATELLITES_ONLY, false)
-        if (engine != null && config == engineConfig && (satellites to satellitesOnly) == engineSatellites) {
+        if (engine != null && config == engineConfig) {
             notifyForeground(getString(R.string.notification_active, name))
             return
         }
@@ -201,6 +216,7 @@ class ReceiverService : Service() {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 engineControl = Messenger(service)
                 EngineStatus.shairportRunning(true)
+                sendTap()
             }
             override fun onServiceDisconnected(name: ComponentName) = onWorker { engineDied(this, startedAt) }
         }
@@ -208,9 +224,6 @@ class ReceiverService : Service() {
             .putExtra(EngineService.EXTRA_ARGUMENTS, arrayOf("shairport-sync", "-c", configFile.path))
             .putExtra(EngineService.EXTRA_SHM_DIRECTORY, shm?.path.orEmpty())
             .putExtra(EngineService.EXTRA_STATUS, engineMessages)
-            .putExtra(EngineService.EXTRA_SATELLITES, satellites)
-            .putExtra(EngineService.EXTRA_SATELLITES_ONLY, satellitesOnly)
-            .putExtra(EngineService.EXTRA_NAME, name)
             // A change restarts the engine anyway: it changes ignore_volume_control.
             .putExtra(EngineService.EXTRA_LINKED_VOLUME, Prefs.linkedVolume(preferences))
         if (!bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
@@ -221,7 +234,6 @@ class ReceiverService : Service() {
         }
         engine = connection
         engineConfig = config
-        engineSatellites = satellites to satellitesOnly
         notifyForeground(getString(R.string.notification_active, name))
     }
 
@@ -269,7 +281,7 @@ class ReceiverService : Service() {
     private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
         ?.firstOrNull { it.processName == "$packageName:engine" }?.pid
 
-    /** With root, protect Wi-Fi automatically; classic AirPlay and satellites still work without it. */
+    /** With root, protect Wi-Fi automatically; classic AirPlay still works without it. */
     private fun startRoot(airplay2: Boolean, shm: File) {
         val userId = android.os.Process.myUid() / PER_USER_RANGE
         val script = rootScript(
@@ -332,7 +344,9 @@ class ReceiverService : Service() {
     }
 
     // No port: Shairport always uses 7000 for AirPlay 2 and 5000 for classic AirPlay.
-    private fun config(preferences: SharedPreferences, name: String, airplay2: Boolean): String = """
+    private fun config(preferences: SharedPreferences, name: String, airplay2: Boolean): String {
+        val tap = AudioTapService.tap
+        return """
         general = {
           name = ${quote(name)};
           model = ${quote(if (airplay2) value(preferences, Prefs.MODEL) else Prefs.GENERIC_MODEL)};
@@ -342,10 +356,10 @@ class ReceiverService : Service() {
           airplay_device_id = ${Prefs.deviceId(this)}; // the app has no MAC address to use
           ignore_volume_control = ${quote(if (Prefs.linkedVolume(preferences)) "yes" else "no")}; // linked: VolumeSync maps it onto STREAM_MUSIC
           volume_range_db = 40; // when Shairport sets the volume: its default 96 dB leaves half the slider near silent
-          // Satellites get the audio this far ahead (the AAudio buffer): room for Wi-Fi hiccups.
-          audio_backend_buffer_desired_length_in_seconds = ${if (preferences.getBoolean(Prefs.SATELLITES, false)) "1.0" else "0.5"};
-          // Satellites get Shairport's rate: 48 kHz (lossless) leaves 44.1 kHz-only players silent.
-          airplay_2_44100_only_mode = ${quote(if (preferences.getBoolean(Prefs.SATELLITES, false) && preferences.getBoolean(Prefs.SATELLITES_44100, false)) "on" else "off")};
+          // The audio tap gets the audio this far ahead (the AAudio buffer), as long as it asks.
+          audio_backend_buffer_desired_length_in_seconds = ${tap?.lead ?: AudioTapService.MIN_LEAD};
+          // The tap gets Shairport's rate; an app that can't use 48 kHz asks for 44.1 kHz only.
+          airplay_2_44100_only_mode = ${quote(if (tap?.only44100 == true) "on" else "off")};
         };
         metadata = {
           enabled = "yes";
@@ -358,6 +372,7 @@ class ReceiverService : Service() {
           statistics = "yes"; // ponytail: sync stats in logcat until AAudio is proven
         };
     """.trimIndent() + "\n"
+    }
 
     private fun quote(value: String): String {
         val escaped = value.replace("\\", "\\\\")
