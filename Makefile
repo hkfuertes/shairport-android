@@ -12,6 +12,7 @@ all:
 install: all
 	adb install -r build/app-release.apk
 	adb install -r build/sendspin-release.apk
+	adb install -r build/snapcast-release.apk
 
 plugin:
 	docker build --target plugin-out --output build/kiosk-plugin .

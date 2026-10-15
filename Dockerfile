@@ -6,8 +6,8 @@
 #   make jnilibs          engine only, in build/jniLibs, for Gradle outside Docker
 #   make src              the patched Shairport Sync and NQPTP sources, in build/src
 #
-# Stages: ndk -> deps -> engine (+ engine-src) -> apk (Shairport, and Sendspin Satellites), and
-# sdk -> plugin.
+# Stages: ndk -> deps -> engine (+ engine-src) -> apk (Shairport, and the satellites apps: Sendspin
+# and Snapcast), and sdk -> plugin.
 
 ARG DEBIAN=debian:bookworm@sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
 
@@ -103,14 +103,14 @@ WORKDIR /work
 COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle gradle
 COPY app app
-COPY sendspin sendspin
+COPY satellites satellites
 COPY --from=engine /out build/jniLibs
 # The release APKs are signed with the debug key; make passes the host's, so the signature (and
 # adb install -r) stays stable.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
     ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease \
-      :sendspin:testReleaseUnitTest :sendspin:assembleRelease
+      :satellites:testSendspinReleaseUnitTest :satellites:testSnapcastReleaseUnitTest :satellites:assembleRelease
 # Shairport's native code looks up Engine's callbacks by name and signature (android.c): fail
 # here, not on the device, if R8 renamed them (proguard-rules.pro).
 COPY --from=engine-src /src/shairport-sync/android.c /tmp/android.c
@@ -138,6 +138,7 @@ FROM scratch AS plugin-out
 COPY --from=plugin /plugin/dist/*.zip /plugin/dist/*.zip.sha256 /plugin/dist/kiosk-satellite-plugin.json /
 
 FROM scratch AS out
-COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk \
-     /work/sendspin/build/outputs/apk/release/sendspin-release.apk /
+COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk /
+COPY --from=apk /work/satellites/build/outputs/apk/sendspin/release/satellites-sendspin-release.apk /sendspin-release.apk
+COPY --from=apk /work/satellites/build/outputs/apk/snapcast/release/satellites-snapcast-release.apk /snapcast-release.apk
 COPY --from=plugin-out / /kiosk-plugin/

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sendspin Satellites</string>
+    <string name="enabled_summary">Sendspin players play what Shairport plays, in sync.</string>
+</resources>
