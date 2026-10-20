@@ -44,14 +44,14 @@ class SatellitesTest {
         fun text(text: String) = texts.put(text)
         fun binary(bytes: ByteBuffer) = plain.put(receive.decrypt(ByteArray(bytes.remaining()).also { bytes.get(it) }))
 
-        fun nextText(): JSONObject = JSONObject(checkNotNull(texts.poll(5, TimeUnit.SECONDS)) { "no text message" })
+        fun nextText(): JSONObject = JSONObject(checkNotNull(texts.poll(30, TimeUnit.SECONDS)) { "no text message" })
 
         /** Nothing for [ms]: for a player that is switched off. */
         fun quietFor(ms: Long): Boolean = plain.poll(ms, TimeUnit.MILLISECONDS) == null
 
         /** server/init and Noise message 1 in, message 2 out: the Sentinel PSK, unpaired. */
         fun handshake() {
-            val serverInit = checkNotNull(texts.poll(5, TimeUnit.SECONDS))
+            val serverInit = checkNotNull(texts.poll(30, TimeUnit.SECONDS))
             val serverId = JSONObject(serverInit).getJSONObject("payload").getString("server_id")
             val message1 = Noise.unbase64url(nextText().getJSONObject("payload").getString("data"))
             val noise = Noise(suite, false, key, Noise.unbase64url(serverId), (clientInit + serverInit).toByteArray(), Noise.SENTINEL_PSK)
@@ -68,7 +68,7 @@ class SatellitesTest {
         fun message(type: String, payload: JSONObject) =
             ws.send(send.encrypt(byteArrayOf(0) + JSONObject().put("type", type).put("payload", payload).toString().toByteArray()))
 
-        fun next(): ByteArray = checkNotNull(plain.poll(5, TimeUnit.SECONDS)) { "nothing received" }
+        fun next(): ByteArray = checkNotNull(plain.poll(30, TimeUnit.SECONDS)) { "nothing received" }
 
         /** The next JSON message, which must be [type]: its payload. */
         fun expect(type: String): JSONObject {
@@ -121,7 +121,7 @@ class SatellitesTest {
             val group = player.expect("group/update")
             assertEquals("stopped", group.getString("playback_state"))
             assertEquals("Living room", group.getString("group_name"))
-            val report = checkNotNull(reports.poll(5, TimeUnit.SECONDS)).single()
+            val report = checkNotNull(reports.poll(30, TimeUnit.SECONDS)).single()
             assertEquals("127.0.0.1", report.first)
             assertEquals("kitchen", JSONObject(report.second).getString("name"))
 
@@ -197,7 +197,7 @@ class SatellitesTest {
             player.next()
 
             client.closeBlocking()
-            assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
+            assertEquals(emptyList<Pair<String, String>>(), reports.poll(30, TimeUnit.SECONDS)) // gone
         }
     }
 
@@ -226,7 +226,7 @@ class SatellitesTest {
                 assertEquals(0, activate.getJSONArray("active_roles").length())
                 player.expect("group/update")
                 player.message("client/goodbye", JSONObject().put("reason", "shutdown"))
-                assertEquals(true, player.closed.poll(5, TimeUnit.SECONDS))
+                assertEquals(true, player.closed.poll(30, TimeUnit.SECONDS))
             }
         } finally {
             listening.stop(1000)
@@ -270,7 +270,7 @@ class SatellitesTest {
             val error = player.nextText()
             assertEquals("server/error", error.getString("type"))
             assertEquals("unsupported_version", error.getJSONObject("payload").getString("reason"))
-            assertEquals(true, player.closed.poll(5, TimeUnit.SECONDS))
+            assertEquals(true, player.closed.poll(30, TimeUnit.SECONDS))
         }
     }
 

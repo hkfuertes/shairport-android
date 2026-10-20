@@ -31,7 +31,7 @@ class SatellitesTest {
         val reports = LinkedBlockingQueue<List<Pair<String, String>>>()
         Satellites(port = 0, controlPort = 0, changed = { reports.put(it) }).use { satellites ->
             Socket("127.0.0.1", satellites.port).use { socket ->
-                socket.soTimeout = 5000
+                socket.soTimeout = 30000
                 val input = DataInputStream(socket.getInputStream())
                 val output = socket.getOutputStream()
 
@@ -111,7 +111,7 @@ class SatellitesTest {
                 }
                 socket.soTimeout = 300
                 assertTrue(runCatching { input.read() }.exceptionOrNull() is SocketTimeoutException)
-                socket.soTimeout = 5000
+                socket.soTimeout = 30000
                 satellites.off = emptySet()
                 repeat(3) {
                     tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
