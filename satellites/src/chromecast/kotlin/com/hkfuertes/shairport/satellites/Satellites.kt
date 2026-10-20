@@ -72,6 +72,8 @@ class Satellites(
         devices.put(id, Device(name, address, port, caps))?.stop()
     }
 
+    fun casting(id: String) = devices.containsKey(id)
+
     fun forget(id: String) {
         devices.remove(id)?.stop()
     }

@@ -73,6 +73,7 @@ class SatellitesService : Service() {
         when (key) {
             ENABLED -> if (!preferences.getBoolean(ENABLED, false)) stopSelf()
             SILENT, ONLY_44100 -> open()
+            PLAYERS_OFF -> protocol?.apply() // a player was switched on or off
         }
     }
 
@@ -99,6 +100,7 @@ class SatellitesService : Service() {
         }
         listeners += notify
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        protocol?.apply() // the players left off last time stay off
         bind()
     }
 
@@ -201,8 +203,8 @@ class SatellitesService : Service() {
     /** How the satellites reach Shairport's audio. */
     enum class Link { OFF, WAITING, CONNECTED, TAKEN, MISSING }
 
-    /** [name]: the player's name; [client]: its product and software version ("Linux 8.0.0"). */
-    class Player(val name: String, val address: String, val client: String)
+    /** [name]: the player's name; [id]: what its switch is kept as; [client]: its product and software version ("Linux 8.0.0"). */
+    class Player(val name: String, val id: String, val address: String, val client: String)
 
     companion object {
         const val ENABLED = "enabled"
@@ -212,6 +214,8 @@ class SatellitesService : Service() {
         const val ONLY_44100 = "only_44100"
         /** Every setting: booleans, off by default. */
         val SETTINGS = listOf(ENABLED, SILENT, ONLY_44100)
+        /** The players switched off ([Player.id]s), kept between runs: an off player is not used. */
+        const val PLAYERS_OFF = "players_off"
         private const val CHANNEL_ID = "satellites"
         private const val NOTIFICATION_ID = 1
 
@@ -229,10 +233,10 @@ class SatellitesService : Service() {
             listeners.forEach { it() }
         }
 
-        /** Each player's address and hello (JSON from a player of any make): the protocol reads it. */
+        /** Each player's id and hello (JSON from a player of any make): the protocol reads it. */
         private fun report(connected: List<Pair<String, String>>) {
-            players = connected.map { (address, hello) ->
-                Protocol.player(address, runCatching { JSONObject(hello) }.getOrElse { JSONObject() })
+            players = connected.map { (id, hello) ->
+                Protocol.player(id, runCatching { JSONObject(hello) }.getOrElse { JSONObject() })
             }
             listeners.forEach { it() }
         }

@@ -74,6 +74,9 @@ class Satellites(
             peers.forEach { it.volume() }
         }
 
+    /** The players switched off (SatellitesService's setting): no audio goes to them, whatever side connected. */
+    @Volatile var off: Set<String> = emptySet()
+
     private var rate = DEFAULT_RATE
     private var chunk = ByteArray(chunkBytes(rate))
     private var filled = 0
@@ -98,8 +101,11 @@ class Satellites(
     fun connect(key: String, uri: URI) = synchronized(dialers) {
         if (closed) return // a discovery that outlived us
         dialers.remove(key)?.stop()
-        dialers[key] = Dialer(uri).also { it.start() }
+        dialers[key] = Dialer(key, uri).also { it.start() }
     }
+
+    /** The players this side is dialing, by their [connect] key. */
+    val dialing: Set<String> get() = synchronized(dialers) { dialers.keys.toSet() }
 
     fun forget(key: String) {
         synchronized(dialers) { dialers.remove(key)?.stop() }
@@ -140,7 +146,7 @@ class Satellites(
                     peers.forEach { it.group(); it.start() }
                 }
                 val duration = nanos(chunk.size / FRAME_BYTES, rate) / 1000
-                peers.forEach { it.chunk(micros(chunkStart), chunk, duration) }
+                peers.forEach { if (it.key !in off) it.chunk(micros(chunkStart), chunk, duration) }
                 filled = 0
             }
         }
@@ -166,7 +172,7 @@ class Satellites(
     }
 
     private fun report() = synchronized(lock) {
-        changed(peers.filter { it.player }.mapNotNull { peer -> peer.hello?.let { peer.address to it.toString() } })
+        changed(peers.filter { it.player }.mapNotNull { peer -> peer.hello?.let { peer.key to it.toString() } })
     }
 
     private fun WebSocket.peer(): Peer? = getAttachment<Peer>()
@@ -174,6 +180,9 @@ class Satellites(
     /** One player, whichever side opened the WebSocket: the server is always the Noise initiator. */
     private inner class Peer(val ws: WebSocket, private val dialer: Dialer?) {
         val address: String = ws.remoteSocketAddress?.address?.hostAddress.orEmpty()
+
+        /** What the player is known as: the discovery's key for the ones we dial, its address for the rest. */
+        val key: String = dialer?.key ?: address
         private var noise: Noise? = null
         private var send: Noise.Cipher? = null
         private var receive: Noise.Cipher? = null
@@ -391,7 +400,7 @@ class Satellites(
     }
 
     /** Server-initiated: connects to a player, and again whenever it drops, until told otherwise. */
-    private inner class Dialer(private val uri: URI) {
+    private inner class Dialer(val key: String, private val uri: URI) {
         @Volatile private var active = true
         @Volatile private var client: WebSocketClient? = null
         private val worker = thread(start = false, isDaemon = true, name = "satellite-dial") { run() }

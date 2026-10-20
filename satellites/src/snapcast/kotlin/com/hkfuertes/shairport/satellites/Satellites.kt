@@ -53,6 +53,9 @@ class Satellites(
             clients.forEach { if (it.ready) it.send(SERVER_SETTINGS, settings(percent)) }
         }
 
+    /** The players switched off (SatellitesService's setting): they stay connected, but hear nothing. */
+    @Volatile var off: Set<String> = emptySet()
+
     // Chunking and flush share lock: flush may come from another thread.
     private var rate = DEFAULT_RATE
     private var chunk = ByteArray(chunkBytes(rate))
@@ -113,7 +116,7 @@ class Satellites(
             if (filled == chunk.size) {
                 val message = ByteBuffer.allocate(12 + chunk.size).order(ByteOrder.LITTLE_ENDIAN)
                     .putTime(micros(chunkStart) - BUFFER_MS * 1000).putInt(chunk.size).put(chunk).array()
-                synchronized(lock) { clients.forEach { if (it.ready) it.send(WIRE_CHUNK, message) } }
+                synchronized(lock) { clients.forEach { if (it.ready && it.address !in off) it.send(WIRE_CHUNK, message) } }
                 filled = 0
             }
         }

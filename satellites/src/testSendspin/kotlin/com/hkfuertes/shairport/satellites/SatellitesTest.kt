@@ -46,6 +46,9 @@ class SatellitesTest {
 
         fun nextText(): JSONObject = JSONObject(checkNotNull(texts.poll(5, TimeUnit.SECONDS)) { "no text message" })
 
+        /** Nothing for [ms]: for a player that is switched off. */
+        fun quietFor(ms: Long): Boolean = plain.poll(ms, TimeUnit.MILLISECONDS) == null
+
         /** server/init and Noise message 1 in, message 2 out: the Sentinel PSK, unpaired. */
         fun handshake() {
             val serverInit = checkNotNull(texts.poll(5, TimeUnit.SECONDS))
@@ -178,6 +181,20 @@ class SatellitesTest {
             // Linked volume: pushed to the players that take it.
             tap(satellites, 2, 40, 0)
             assertEquals(40, player.expect("server/command").getJSONObject("player").getInt("volume"))
+
+            // Its switch off: it stays connected, but hears nothing; on, it hears again.
+            satellites.off = setOf("127.0.0.1")
+            repeat(6) {
+                tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                heardAt += 352 * 1_000_000_000L / 44100
+            }
+            assertTrue(player.quietFor(300))
+            satellites.off = emptySet()
+            repeat(3) {
+                tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                heardAt += 352 * 1_000_000_000L / 44100
+            }
+            player.next()
 
             client.closeBlocking()
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone

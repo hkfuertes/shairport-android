@@ -102,6 +102,22 @@ class SatellitesTest {
                 assertEquals(SERVER_SETTINGS, pushed.type)
                 assertTrue(text(pushed.payload).contains("\"volume\":40"))
                 assertTrue(text(pushed.payload).contains("\"bufferMs\":$BUFFER_MS"))
+
+                // Its switch off: it stays connected, but hears nothing; on, it hears again.
+                satellites.off = setOf("127.0.0.1")
+                repeat(6) {
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                    heardAt += 352 * 1_000_000_000L / 44100
+                }
+                socket.soTimeout = 300
+                assertTrue(runCatching { input.read() }.exceptionOrNull() is SocketTimeoutException)
+                socket.soTimeout = 5000
+                satellites.off = emptySet()
+                repeat(3) {
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                    heardAt += 352 * 1_000_000_000L / 44100
+                }
+                assertEquals(WIRE_CHUNK, read(input).type)
             }
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
 

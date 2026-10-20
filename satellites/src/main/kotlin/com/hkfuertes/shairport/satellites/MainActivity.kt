@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.preference.Preference
 import android.preference.PreferenceActivity
 import android.preference.PreferenceCategory
+import android.preference.SwitchPreference
 import java.net.Inet4Address
 
 /** The settings, and who is connected (SatellitesService's status), live. */
@@ -55,8 +56,28 @@ class MainActivity : PreferenceActivity() {
             row(getString(R.string.status_server), getString(R.string.server, wifiAddress() ?: getString(R.string.no_wifi), Satellites.PORT, Protocol.SERVICE)),
         )
         for (player in SatellitesService.players) {
-            status.addPreference(row(player.name, listOf(player.address, player.client).filter { it.isNotEmpty() }.joinToString(" · ")))
+            status.addPreference(SwitchPreference(this).apply {
+                title = player.name
+                summary = listOf(player.address, player.client).filter { it.isNotEmpty() }.joinToString(" · ")
+                isPersistent = false
+                isChecked = player.id !in switchedOff()
+                setOnPreferenceChangeListener { _, on ->
+                    switched(player.id, on == true)
+                    refresh() // and the running service reacts to the preference
+                    true
+                }
+            })
         }
+    }
+
+    /** The players switched off: [SatellitesService.PLAYERS_OFF], as a set one can add to. */
+    private fun switchedOff(): Set<String> =
+        SatellitesService.preferences(this).getStringSet(SatellitesService.PLAYERS_OFF, emptySet()).orEmpty()
+
+    private fun switched(id: String, on: Boolean) {
+        val off = switchedOff().toMutableSet()
+        if (on) off.remove(id) else off.add(id)
+        SatellitesService.preferences(this).edit().putStringSet(SatellitesService.PLAYERS_OFF, off).apply()
     }
 
     private fun row(title: String, summary: String?) = Preference(this).apply {

@@ -8,7 +8,7 @@ import org.json.JSONObject
  * the clients that look for one ([SERVICE]); the others are given the device's address.
  */
 internal class Protocol(
-    context: Context,
+    private val context: Context,
     log: (String) -> Unit,
     changed: (List<Pair<String, String>>) -> Unit,
 ) : AutoCloseable {
@@ -21,6 +21,11 @@ internal class Protocol(
         satellites.close()
     }
 
+    /** The players switched off: they came to us, so they stay connected, but hear nothing. */
+    fun apply() {
+        satellites.off = SatellitesService.preferences(context).getStringSet(SatellitesService.PLAYERS_OFF, emptySet()).orEmpty()
+    }
+
     companion object {
         /** How clients that look for a server find it. */
         const val SERVICE = "_snapcast._tcp"
@@ -28,7 +33,7 @@ internal class Protocol(
         /** A client from its Hello (snapclient's: HostName, ClientName, Version...). */
         fun player(address: String, hello: JSONObject): SatellitesService.Player {
             val client = listOf(hello.optString("ClientName"), hello.optString("Version")).filter { it.isNotBlank() }
-            return SatellitesService.Player(hello.optString("HostName").ifBlank { address }, address, client.joinToString(" "))
+            return SatellitesService.Player(hello.optString("HostName").ifBlank { address }, address, address, client.joinToString(" "))
         }
     }
 }

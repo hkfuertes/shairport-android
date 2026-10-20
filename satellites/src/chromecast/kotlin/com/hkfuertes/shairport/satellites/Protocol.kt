@@ -19,7 +19,7 @@ import org.json.JSONObject
  * one at a time and cast to. Nothing of ours is advertised: the devices pull.
  */
 internal class Protocol(
-    context: Context,
+    private val context: Context,
     log: (String) -> Unit,
     private val changed: (List<Pair<String, String>>) -> Unit,
 ) : AutoCloseable {
@@ -34,8 +34,19 @@ internal class Protocol(
         satellites.close()
     }
 
+    /** The players switched off: every found one not among them is cast to (again). */
+    fun apply() {
+        val off = switchedOff()
+        devices.forEach { (id, device) ->
+            if (id in off) satellites.forget(id) else if (!satellites.casting(id)) satellites.cast(id, device.name, device.address, device.port, device.caps)
+        }
+    }
+
+    private fun switchedOff(): Set<String> =
+        SatellitesService.preferences(context).getStringSet(SatellitesService.PLAYERS_OFF, emptySet()).orEmpty()
+
     /** A device, found: what [changed] reports of it. */
-    private class Device(val address: String, val port: Int, val caps: Int, val json: String)
+    private class Device(val name: String, val address: String, val port: Int, val caps: Int, val json: String)
 
     private fun report() {
         devices.values.let { devices -> changed(devices.map { it.address to it.json }) }
@@ -67,9 +78,9 @@ internal class Protocol(
                         fun attribute(key: String) = attributes[key] ?: ""
                         val name = attribute("fn").ifBlank { resolved.serviceName }
                         devices[resolved.serviceName] =
-                            Device(host.hostAddress, resolved.port, attribute("ca").toIntOrNull() ?: 0, JSONObject().put("fn", name).put("md", attribute("md")).toString())
+                            Device(name, host.hostAddress, resolved.port, attribute("ca").toIntOrNull() ?: 0, JSONObject().put("fn", name).put("md", attribute("md")).put("at", "${host.hostAddress}:${resolved.port}").toString())
                         Log.i(TAG, "Found cast device \"$name\" at ${host.hostAddress}:${resolved.port}")
-                        satellites.cast(resolved.serviceName, name, host.hostAddress, resolved.port, attribute("ca").toIntOrNull() ?: 0)
+                        if (resolved.serviceName !in switchedOff()) satellites.cast(resolved.serviceName, name, host.hostAddress, resolved.port, attribute("ca").toIntOrNull() ?: 0)
                         report()
                     }
                     done.countDown()
@@ -113,8 +124,8 @@ internal class Protocol(
         private const val TAG = "Satellites"
         private const val RESOLVE_TIMEOUT_MS = 10_000L
 
-        /** A device from its mDNS: [hello] is the TXT the Protocol kept (fn, md), every field optional. */
+        /** A device from its mDNS: [hello] is the TXT the Protocol kept (fn, md, at), every field optional. */
         fun player(address: String, hello: JSONObject): SatellitesService.Player =
-            SatellitesService.Player(hello.optString("fn").ifBlank { address }, address, hello.optString("md"))
+            SatellitesService.Player(hello.optString("fn").ifBlank { address }, address, hello.optString("at"), hello.optString("md"))
     }
 }
