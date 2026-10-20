@@ -25,6 +25,10 @@ android {
             dimension 'protocol'
             applicationId 'com.hkfuertes.shairport.snapcast'
         }
+        chromecast {
+            dimension 'protocol'
+            applicationId 'com.hkfuertes.shairport.chromecast'
+        }
     }
 
     buildTypes {

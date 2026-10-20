@@ -110,7 +110,7 @@ COPY --from=engine /out build/jniLibs
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
     ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease \
-      :satellites:testSendspinReleaseUnitTest :satellites:testSnapcastReleaseUnitTest :satellites:assembleRelease
+      :satellites:testSendspinReleaseUnitTest :satellites:testSnapcastReleaseUnitTest :satellites:testChromecastReleaseUnitTest :satellites:assembleRelease
 # Shairport's native code looks up Engine's callbacks by name and signature (android.c): fail
 # here, not on the device, if R8 renamed them (proguard-rules.pro).
 COPY --from=engine-src /src/shairport-sync/android.c /tmp/android.c
@@ -141,4 +141,5 @@ FROM scratch AS out
 COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk /
 COPY --from=apk /work/satellites/build/outputs/apk/sendspin/release/satellites-sendspin-release.apk /sendspin-release.apk
 COPY --from=apk /work/satellites/build/outputs/apk/snapcast/release/satellites-snapcast-release.apk /snapcast-release.apk
+COPY --from=apk /work/satellites/build/outputs/apk/chromecast/release/satellites-chromecast-release.apk /chromecast-release.apk
 COPY --from=plugin-out / /kiosk-plugin/

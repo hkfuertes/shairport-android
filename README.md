@@ -6,7 +6,7 @@ A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk
 
 ## Use
 
-Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairport-ap2-android/releases) (or `app-release.apk`, see [Build](#build)) and open Shairport:
+Install `shairport-*.apk` from a [release](https://github.com/hkfuertes/shairport-ap2-android/releases) — the satellites apps are next to it, same key, optional — (or `app-release.apk`, see [Build](#build)) and open Shairport:
 
 - **AirPlay receiver** starts or stops it, as do the Quick Settings tile and the notification's *Stop*.
 - **AirPlay 2** needs root for NQPTP. Its switch stays off and disabled without root; grant it through **Root access** to enable the switch. The receiver stays classic AirPlay otherwise.
@@ -135,10 +135,11 @@ The volume is 100 while AirPlay volume goes into the audio. With **Link Android 
 
 ## Satellites
 
-Two companion apps, built with the receiver and signed with the same key, play what it plays on other speakers, fed by the [audio tap](#audio-tap): in sync with it and with the rest of an AirPlay 2 group. For the sender they are part of this speaker: one volume, grouped together.
+Companion apps, built with the receiver and signed with the same key, play what it plays on other speakers, fed by the [audio tap](#audio-tap): Sendspin's and Snapcast's in sync with it and with the rest of an AirPlay 2 group. For the sender they are part of this speaker: one volume, grouped together.
 
 - `sendspin-release.apk`, **Sendspin Satellites** (`com.hkfuertes.shairport.sendspin`): a minimal [Sendspin](https://github.com/Sendspin/spec) server, for Sendspin players.
 - `snapcast-release.apk`, **Snapcast Satellites** (`com.hkfuertes.shairport.snapcast`): a minimal [Snapcast](https://github.com/badaix/snapcast) server, for Snapcast clients.
+- `chromecast-release.apk`, **Chromecast Satellites** (`com.hkfuertes.shairport.chromecast`): casts to Google Cast devices, each pulling the stream (AirConnect's aircast design).
 
 They are the same app around a different server. Turn on **Satellites** in one; it runs as a foreground service of its own (its notification counts the players), also after a reboot, while the receiver keeps running in Shairport. Its screen shows whether it reaches Shairport, its address and each player connected with its name, address, product and version. One app taps the receiver at a time: the last one turned on; the other one says so.
 
@@ -158,6 +159,13 @@ They are the same app around a different server. Turn on **Satellites** in one; 
 - Volume goes as a Sendspin volume command, to the players that accept one; a player that doesn't plays at its own volume.
 - On pause or skip their stream ends (they drop what they hold and stop with this device), and the next audio starts a new one.
 
+### Chromecast
+
+- Every Google Cast device on the network (`_googlecast._tcp`) is cast to: speakers, screens, groups — all of them, as long as the app runs. Google Cast has no pairing to allow.
+- Each device pulls Shairport's played audio as an endless WAV over HTTP (`audio/wav`), the way [AirConnect](https://github.com/philippe44/AirConnect)'s aircast feeds its devices: they follow the stream's arrival. They are not sample-synchronized, and they lag behind it by their own startup buffering (seconds, on top of the 1 s lead): use **Only satellites**, or accept the delay.
+- A pause or skip keeps playing what was buffered; a change of rate restarts the stream (a gap while each device reloads). Nothing shows on the device's screen but the stream: no title, artwork or clock.
+- Volume goes as the device's own Google Cast volume (its speaker's, which the Home app and "hey Google" also set): with **Link Android music volume** on in Shairport, the keys set both together.
+
 ### Snapcast
 
 - Clients: `snapclient` on Linux, an [ESP32](https://github.com/CarlosDerSeher/snapclient), [Snapdroid](https://github.com/badaix/snapdroid) on Android. They find the server over mDNS (`_snapcast._tcp`, named `Snapcast`) or at the device's address, port 1704 (`snapclient -h ADDRESS`). When pointing them at the address, give the device a fixed one (a DHCP reservation).
@@ -168,7 +176,7 @@ They are the same app around a different server. Turn on **Satellites** in one; 
 Over adb (`android.permission.DUMP`, as Shairport's):
 
 ```sh
-APP=com.hkfuertes.shairport.sendspin # or com.hkfuertes.shairport.snapcast
+APP=com.hkfuertes.shairport.sendspin # or com.hkfuertes.shairport.snapcast, com.hkfuertes.shairport.chromecast
 
 # on, and at every boot from then on
 adb shell am start-foreground-service -n $APP/com.hkfuertes.shairport.satellites.SatellitesService
@@ -198,7 +206,7 @@ adb shell am broadcast --include-stopped-packages -p $APP -a com.hkfuertes.shair
 Everything builds in Docker from a clean clone; the host needs nothing else:
 
 ```sh
-make           # build/app-release.apk, build/sendspin-release.apk, build/snapcast-release.apk and build/kiosk-plugin/
+make           # build/app-release.apk, build/sendspin-release.apk, build/snapcast-release.apk, build/chromecast-release.apk and build/kiosk-plugin/
 make install   # and adb install -r the three apps
 ```
 
