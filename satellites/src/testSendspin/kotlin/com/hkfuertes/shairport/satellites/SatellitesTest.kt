@@ -190,9 +190,13 @@ class SatellitesTest {
             }
             assertTrue(player.quietFor(300))
             satellites.off = emptySet()
-            repeat(3) {
-                tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+            // A fresh anchor ahead of now: under load (quietFor just ate real time) the timeline's
+            // old lead may be spent, and a chunk in the past is dropped, not sent.
+            heardAt = System.nanoTime() + 400_000_000
+            tap(satellites, 0, 44100, heardAt) // sets the new timeline; its frames are dropped
+            repeat(6) {
                 heardAt += 352 * 1_000_000_000L / 44100
+                tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
             }
             player.next()
 
