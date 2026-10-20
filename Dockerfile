@@ -2,11 +2,12 @@
 # The whole build. Upstream sources are downloaded here at pinned versions and checked against
 # the checksums below; the repository keeps only its own code and patches (native/patches).
 #
-#   make                  release APK + Kiosk Satellite plugin in build/ (default target: out)
+#   make                  release APKs + Kiosk Satellite plugin in build/ (default target: out)
 #   make jnilibs          engine only, in build/jniLibs, for Gradle outside Docker
 #   make src              the patched Shairport Sync and NQPTP sources, in build/src
 #
-# Stages: ndk -> deps -> engine (+ engine-src) -> apk, and sdk -> plugin.
+# Stages: ndk -> deps -> engine (+ engine-src) -> apk (Shairport, and the satellites apps: Sendspin
+# and Snapcast), and sdk -> plugin.
 
 ARG DEBIAN=debian:bookworm@sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
 
@@ -50,8 +51,8 @@ get() {
   echo "$3  /tmp/src.tar.gz" | sha256sum -c -
   mkdir -p "/src/$1" && tar -xzf /tmp/src.tar.gz -C "/src/$1" --strip-components=1 && rm /tmp/src.tar.gz
 }
-get shairport-sync 7bad231c18368dbd26f298577f6210e36e4b0797 eab1fa095e34676d05f68e38d86501d5afa3fc46f83f044859d4d125d526daec
-get nqptp c925f27c1fd12e4033ac477e5a405969b0b0260b d2c2fe5d2574d447a817b1585e82c38f4c98774dac8284e5a3f17e188a3a75f9
+get shairport-sync 9118bbce71f287df2dfdfb5bed3911d92a9fdb0f 5d6ab87edb4fa7737f29758ec3c981a283c4b0676b64a4d2a585c9ce03ebfdac
+get nqptp ab8fb67483411640fd7f1e193889482f2421c37c 3e90e2ea1f52f5c1559a5a46b2cdadb46ac6532a08a34f8cd7e77aa39f6a90c7
 EOF
 COPY native/patches /patches
 # Each project's patches in file-name order; see native/patches/README.md.
@@ -102,12 +103,24 @@ WORKDIR /work
 COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle gradle
 COPY app app
+COPY satellites satellites
 COPY --from=engine /out build/jniLibs
-# The release APK is signed with the debug key; make passes the host's, so the signature (and
+# The release APKs are signed with the debug key; make passes the host's, so the signature (and
 # adb install -r) stays stable.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=debug_keystore,target=/root/.android/debug.keystore \
-    ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease
+    ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest :app:assembleRelease \
+      :satellites:testSendspinReleaseUnitTest :satellites:testSnapcastReleaseUnitTest :satellites:testChromecastReleaseUnitTest :satellites:assembleRelease
+# Shairport's native code looks up Engine's callbacks by name and signature (android.c): fail
+# here, not on the device, if R8 renamed them (proguard-rules.pro).
+COPY --from=engine-src /src/shairport-sync/android.c /tmp/android.c
+RUN "$ANDROID_HOME/build-tools/35.0.0/dexdump" app/build/outputs/apk/release/app-release.apk \
+      | awk '/\(in Lcom\/hkfuertes\/shairport\/Engine;\)/ {e = 1; next} /\(in L/ {e = 0} e && /name +:/ {n = $3} e && /type +:/ {print n, $3}' > /tmp/engine \
+    && grep -o 'GetStaticMethodID(env, engine, "[^"]*", "[^"]*")' /tmp/android.c | cut -d'"' -f2,4 | tr '"' ' ' > /tmp/jni \
+    && test -s /tmp/jni \
+    && while read name type; do \
+         grep -qxF "'$name' '$type'" /tmp/engine || { echo "R8 renamed Engine.$name$type" >&2; exit 1; }; \
+       done < /tmp/jni
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin
@@ -126,4 +139,7 @@ COPY --from=plugin /plugin/dist/*.zip /plugin/dist/*.zip.sha256 /plugin/dist/kio
 
 FROM scratch AS out
 COPY --from=apk /work/app/build/outputs/apk/release/app-release.apk /
+COPY --from=apk /work/satellites/build/outputs/apk/sendspin/release/satellites-sendspin-release.apk /sendspin-release.apk
+COPY --from=apk /work/satellites/build/outputs/apk/snapcast/release/satellites-snapcast-release.apk /snapcast-release.apk
+COPY --from=apk /work/satellites/build/outputs/apk/chromecast/release/satellites-chromecast-release.apk /chromecast-release.apk
 COPY --from=plugin-out / /kiosk-plugin/

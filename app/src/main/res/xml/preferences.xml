@@ -42,18 +42,9 @@
             android:summary="@string/link_stream_volume_summary"
             android:title="@string/link_stream_volume_title" />
         <SwitchPreference
-            android:key="satellites"
-            android:summary="@string/satellites_summary"
-            android:title="@string/satellites_title" />
-        <!-- Summary: MainActivity, from EngineStatus. -->
-        <Preference
-            android:key="satellites_list"
-            android:persistent="false"
-            android:title="@string/satellites_list_title">
-            <intent
-                android:targetClass="com.hkfuertes.shairport.SatellitesActivity"
-                android:targetPackage="com.hkfuertes.shairport" />
-        </Preference>
+            android:key="now_playing"
+            android:summary="@string/now_playing_summary"
+            android:title="@string/now_playing_title" />
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -95,5 +86,11 @@
             android:persistent="false"
             android:selectable="false"
             android:title="@string/status_playback_title" />
+        <Preference
+            android:key="status_tap"
+            android:enabled="false"
+            android:persistent="false"
+            android:selectable="false"
+            android:title="@string/status_tap_title" />
     </PreferenceCategory>
 </PreferenceScreen>

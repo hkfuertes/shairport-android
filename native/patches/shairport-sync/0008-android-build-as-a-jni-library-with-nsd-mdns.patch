@@ -17,19 +17,27 @@ no MAC address needed (the app passes general.airplay_device_id).
 Upstream: not submitted (Android only)
 Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
 ---
+ Makefile.am |   2 +-
+ android.c   | 191 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ common.c    |   6 +-
+ mdns.c      |   2 +
+ shairport.c |   2 +-
+ 5 files changed, 199 insertions(+), 4 deletions(-)
+ create mode 100644 android.c
+
 diff --git a/Makefile.am b/Makefile.am
-index 5cfab26..17e32df 100644
+index 2fbd05b..eea385c 100644
 --- a/Makefile.am
 +++ b/Makefile.am
-@@ -32,7 +32,7 @@ shairport_sync_SOURCES = shairport.c bonjour_strings.c mdns.c common.c rtp.c \
-   rtsp.c \
-   utilities/debug.c utilities/network_utilities.c utilities/rtsp_message_utilities.c \
+@@ -35,7 +35,7 @@ shairport_sync_SOURCES = shairport.c bonjour_strings.c mdns.c common.c rtp.c \
+   utilities/rtsp_message_utilities.c \
    utilities/string_utilities.c \
+   utilities/general_utilities.c \
 -  utilities/exit.c
 +  utilities/exit.c android.c
  
- if BUILD_FOR_DARWIN
-   AM_CXXFLAGS = -I/usr/local/include -Wno-multichar -Wall -Wextra -Wno-deprecated-declarations -pthread -DSYSCONFDIR=\"$(sysconfdir)\"
+ if USE_REMOTE_CONTROL
+ shairport_sync_SOURCES +=   remote/remote.c
 diff --git a/android.c b/android.c
 new file mode 100644
 index 0000000..75513ce
@@ -228,10 +236,10 @@ index 0000000..75513ce
 +                             .mdns_dacp_monitor_set_id = NULL,
 +                             .mdns_dacp_monitor_stop = NULL};
 diff --git a/common.c b/common.c
-index a81fbbb..a3ea3ed 100644
+index c443df7..13f5889 100644
 --- a/common.c
 +++ b/common.c
-@@ -2268,7 +2268,9 @@ char *debug_malloc_hex_cstring(void *packet, size_t nread) {
+@@ -2332,7 +2332,9 @@ char *debug_malloc_hex_cstring(void *packet, size_t nread) {
  
  int get_device_id(uint8_t *id, int int_length) {
  
@@ -242,7 +250,7 @@ index a81fbbb..a3ea3ed 100644
  
    int response = -1;
    struct ifaddrs *ifaddr = NULL;
-@@ -2330,7 +2332,7 @@ int get_device_id(uint8_t *id, int int_length) {
+@@ -2394,7 +2396,7 @@ int get_device_id(uint8_t *id, int int_length) {
      time_to_wait = wait_until - get_absolute_time_in_ns();
    } while ((response != 0) && (time_to_wait > 0));
    if (response != 0)
@@ -252,10 +260,10 @@ index a81fbbb..a3ea3ed 100644
  }
  
 diff --git a/mdns.c b/mdns.c
-index 8f4fa0b..60d4cb4 100644
+index 92df9fa..1ed7cff 100644
 --- a/mdns.c
 +++ b/mdns.c
-@@ -33,6 +33,7 @@
+@@ -32,6 +32,7 @@
  #include <stdlib.h>
  #include <string.h>
  
@@ -263,7 +271,7 @@ index 8f4fa0b..60d4cb4 100644
  #ifdef CONFIG_AVAHI
  extern mdns_backend mdns_avahi;
  #endif
-@@ -49,6 +50,7 @@ extern mdns_backend mdns_external_dns_sd;
+@@ -48,6 +49,7 @@ extern mdns_backend mdns_external_dns_sd;
  #endif
  
  static mdns_backend *mdns_backends[] = {
@@ -272,10 +280,10 @@ index 8f4fa0b..60d4cb4 100644
      &mdns_avahi,
  #endif
 diff --git a/shairport.c b/shairport.c
-index 42225e7..5d6364a 100644
+index 3cd90a1..46f6c76 100644
 --- a/shairport.c
 +++ b/shairport.c
-@@ -2361,7 +2361,7 @@ const char *av_channel_layout_name(uint64_t channel_layout) {
+@@ -2672,7 +2672,7 @@ const char *av_channel_layout_name(uint64_t channel_layout) {
  
  #endif
  

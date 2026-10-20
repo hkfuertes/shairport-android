@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="enabled"
+        android:summary="@string/enabled_summary"
+        android:title="@string/enabled_title" />
+    <SwitchPreference
+        android:defaultValue="false"
+        android:dependency="enabled"
+        android:key="silent"
+        android:summary="@string/silent_summary"
+        android:title="@string/silent_title" />
+    <SwitchPreference
+        android:defaultValue="false"
+        android:dependency="enabled"
+        android:key="only_44100"
+        android:summary="@string/only_44100_summary"
+        android:title="@string/only_44100_title" />
+    <!-- Rows: MainActivity, from SatellitesService's status. -->
+    <PreferenceCategory
+        android:key="status"
+        android:title="@string/status_category" />
+</PreferenceScreen>

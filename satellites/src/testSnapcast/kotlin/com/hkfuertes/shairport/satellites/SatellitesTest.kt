@@ -1,12 +1,12 @@
-package com.hkfuertes.shairport
+package com.hkfuertes.shairport.satellites
 
-import com.hkfuertes.shairport.Satellites.Companion.BUFFER_MS
-import com.hkfuertes.shairport.Satellites.Companion.CODEC_HEADER
-import com.hkfuertes.shairport.Satellites.Companion.HEADER_BYTES
-import com.hkfuertes.shairport.Satellites.Companion.HELLO
-import com.hkfuertes.shairport.Satellites.Companion.SERVER_SETTINGS
-import com.hkfuertes.shairport.Satellites.Companion.TIME
-import com.hkfuertes.shairport.Satellites.Companion.WIRE_CHUNK
+import com.hkfuertes.shairport.satellites.Satellites.Companion.BUFFER_MS
+import com.hkfuertes.shairport.satellites.Satellites.Companion.CODEC_HEADER
+import com.hkfuertes.shairport.satellites.Satellites.Companion.HEADER_BYTES
+import com.hkfuertes.shairport.satellites.Satellites.Companion.HELLO
+import com.hkfuertes.shairport.satellites.Satellites.Companion.SERVER_SETTINGS
+import com.hkfuertes.shairport.satellites.Satellites.Companion.TIME
+import com.hkfuertes.shairport.satellites.Satellites.Companion.WIRE_CHUNK
 import java.io.DataInputStream
 import java.net.ServerSocket
 import java.net.Socket
@@ -22,7 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A fake snapclient against [Satellites]: what a real one needs, in the order it needs it. */
+/** A fake snapclient against [Satellites], fed by audio tap messages: what a real one needs, in the order it needs it. */
 class SatellitesTest {
     private class Message(val type: Int, val refersTo: Int, val sent: Long, val payload: ByteBuffer)
 
@@ -63,7 +63,7 @@ class SatellitesTest {
                 var heardAt = System.nanoTime() + 400_000_000
                 val firstSent = heardAt + 352 * 1_000_000_000L / 44100
                 for ((index, frames) in listOf(352, 352, 353, 352, 352, 352, 352, 352).withIndex()) {
-                    satellites.audio(ByteArray(frames * 4) { (index + 1).toByte() }, 44100, heardAt)
+                    tap(satellites, 0, 44100, heardAt, ByteArray(frames * 4) { (index + 1).toByte() })
                     heardAt += 352 * 1_000_000_000L / 44100 // the stuffed frame doesn't move the timeline
                 }
                 val first = read(input)
@@ -78,17 +78,17 @@ class SatellitesTest {
                 heardAt += 1_000_000_000
                 val resumed = heardAt + 352 * 1_000_000_000L / 44100
                 repeat(4) {
-                    satellites.audio(ByteArray(352 * 4), 44100, heardAt)
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
                     heardAt += 352 * 1_000_000_000L / 44100
                 }
                 assertEquals(resumed / 1000 - BUFFER_MS * 1000, timestamp(read(input)))
 
                 // Flush also drops our partial chunk, even if the next timestamps are contiguous.
-                satellites.audio(ByteArray(0), 0, 0)
+                tap(satellites, 1, 0, 0)
                 assertEquals(CODEC_HEADER, read(input).type)
                 val afterFlush = heardAt + 352 * 1_000_000_000L / 44100
                 repeat(4) {
-                    satellites.audio(ByteArray(352 * 4) { 9 }, 44100, heardAt)
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4) { 9 })
                     heardAt += 352 * 1_000_000_000L / 44100
                 }
                 val fresh = read(input)
@@ -97,11 +97,27 @@ class SatellitesTest {
                 assertEquals(afterFlush / 1000 - BUFFER_MS * 1000, timestamp(fresh))
 
                 // Linked volume: new settings, unasked, with the same buffer (no resync).
-                satellites.volume = 40
+                tap(satellites, 2, 40, 0)
                 val pushed = read(input)
                 assertEquals(SERVER_SETTINGS, pushed.type)
                 assertTrue(text(pushed.payload).contains("\"volume\":40"))
                 assertTrue(text(pushed.payload).contains("\"bufferMs\":$BUFFER_MS"))
+
+                // Its switch off: it stays connected, but hears nothing; on, it hears again.
+                satellites.off = setOf("127.0.0.1")
+                repeat(6) {
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                    heardAt += 352 * 1_000_000_000L / 44100
+                }
+                socket.soTimeout = 300
+                assertTrue(runCatching { input.read() }.exceptionOrNull() is SocketTimeoutException)
+                socket.soTimeout = 5000
+                satellites.off = emptySet()
+                repeat(3) {
+                    tap(satellites, 0, 44100, heardAt, ByteArray(352 * 4))
+                    heardAt += 352 * 1_000_000_000L / 44100
+                }
+                assertEquals(WIRE_CHUNK, read(input).type)
             }
             assertEquals(emptyList<Pair<String, String>>(), reports.poll(5, TimeUnit.SECONDS)) // gone
 
@@ -182,6 +198,12 @@ class SatellitesTest {
                 assertEquals(TIME, read(input).type)
             }
         }
+    }
+
+    /** A message as Shairport's tap sends it (patch 0009), in a reused, longer buffer. */
+    private fun tap(satellites: Satellites, type: Int, value: Int, time: Long, frames: ByteArray = ByteArray(0)) {
+        val message = le(16 + frames.size).putInt(type).putInt(value).putLong(time).put(frames).array()
+        Tap.deliver(message + ByteArray(7) { 99 }, message.size, satellites)
     }
 
     private fun assertNear(expected: Long, actual: Long, delta: Long) =

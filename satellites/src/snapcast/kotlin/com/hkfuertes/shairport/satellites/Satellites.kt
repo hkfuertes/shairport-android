@@ -1,4 +1,4 @@
-package com.hkfuertes.shairport
+package com.hkfuertes.shairport.satellites
 
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
@@ -15,11 +15,12 @@ import kotlin.math.abs
 
 /**
  * Minimal Snapcast server (the binary protocol of snapcast's doc/binary_protocol.md) for
- * satellites: snapclient on Linux, an ESP32 (CarlosDerSeher/snapclient) or Snapdroid play what this
- * device plays, when it plays it. [audio] gets every buffer AAudio is given with the time its first
- * frame is heard (Shairport's should_be_time, on the sender's timeline, AirPlay 2's PTP included)
- * and sends it in 20 ms chunks stamped with that time minus [BUFFER_MS]: clients play a chunk at
- * its timestamp plus bufferMs, so they sound with this device and the rest of an AirPlay group.
+ * satellites: snapclient on Linux, an ESP32 (CarlosDerSeher/snapclient) or Snapdroid play what
+ * Shairport plays, when it plays it. [audio] gets every buffer Shairport's AAudio is given (its
+ * audio tap, [Tap]) with the time its first frame is heard (Shairport's should_be_time, on the
+ * sender's timeline, AirPlay 2's PTP included) and sends it in 20 ms chunks stamped with that time
+ * minus [BUFFER_MS]: clients play a chunk at its timestamp plus bufferMs, so they sound with the
+ * Shairport device and the rest of an AirPlay group.
  *
  * One clock for everything, System.nanoTime(): chunk times and the Time replies clients sync to.
  * No android.* here: the unit test runs it on the JVM.
@@ -43,7 +44,7 @@ class Satellites(
 
     /**
      * Every client's volume, in percent: Snapcast's own, which each client applies itself. 100 while
-     * the AirPlay volume is in the PCM; with linked volume, this device's music volume (EngineService).
+     * the AirPlay volume is in the PCM; with linked volume, Shairport's device's music volume (the tap's).
      */
     var volume = 100
         set(percent) = synchronized(lock) {
@@ -51,6 +52,9 @@ class Satellites(
             field = percent
             clients.forEach { if (it.ready) it.send(SERVER_SETTINGS, settings(percent)) }
         }
+
+    /** The players switched off (SatellitesService's setting): they stay connected, but hear nothing. */
+    @Volatile var off: Set<String> = emptySet()
 
     // Chunking and flush share lock: flush may come from another thread.
     private var rate = DEFAULT_RATE
@@ -76,8 +80,8 @@ class Satellites(
     }
 
     /**
-     * Shairport's player thread: 16-bit stereo [pcm] whose first frame is heard at [heardAt]
-     * (System.nanoTime()), about 1 s ahead (the AAudio buffer ReceiverService asks for).
+     * The tap's reader: 16-bit stereo [pcm] whose first frame is heard at [heardAt]
+     * (System.nanoTime()), about 1 s ahead (the lead SatellitesService asks the tap for).
      * No frames: a flush (pause, skip, stop), maybe from another thread.
      */
     fun audio(pcm: ByteArray, rate: Int, heardAt: Long) = synchronized(lock) {
@@ -112,7 +116,7 @@ class Satellites(
             if (filled == chunk.size) {
                 val message = ByteBuffer.allocate(12 + chunk.size).order(ByteOrder.LITTLE_ENDIAN)
                     .putTime(micros(chunkStart) - BUFFER_MS * 1000).putInt(chunk.size).put(chunk).array()
-                synchronized(lock) { clients.forEach { if (it.ready) it.send(WIRE_CHUNK, message) } }
+                synchronized(lock) { clients.forEach { if (it.ready && it.address !in off) it.send(WIRE_CHUNK, message) } }
                 filled = 0
             }
         }

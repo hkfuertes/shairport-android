@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "shairport"
-include(":app")
+include(":app", ":satellites")

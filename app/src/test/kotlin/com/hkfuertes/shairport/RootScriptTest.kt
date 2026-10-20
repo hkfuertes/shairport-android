@@ -45,7 +45,7 @@ class RootScriptTest {
             assertEquals(0, process.exitValue())
         }
         try {
-            // Classic AirPlay/Snapcast automatically protect Wi-Fi without starting NQPTP.
+            // Classic AirPlay/satellites automatically protect Wi-Fi without starting NQPTP.
             val wifiOnly = start(false)
             assertTrue(ready(wifiOnly).contains("$WIFI_MARKER up"))
             assertFalse(directory.resolve("nqptp").exists())

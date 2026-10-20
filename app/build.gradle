@@ -24,6 +24,9 @@ android {
             // ponytail: debug key, so it upgrades a debug install and keeps ANDROID_ID (the AirPlay
             // device ID). A real key when the APK is published.
             signingConfig signingConfigs.debug
+            // Strips the unused Kotlin library; app classes stay whole (JNI calls them by name).
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 

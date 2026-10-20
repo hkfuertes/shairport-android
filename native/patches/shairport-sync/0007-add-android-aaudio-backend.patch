@@ -1,22 +1,8 @@
---- a/configure.ac	2026-09-26 03:50:22.267715296 +0200
-+++ b/configure.ac	2026-09-26 03:50:22.439716381 +0200
-@@ -92,6 +92,13 @@
- fi
- AM_CONDITIONAL([USE_STDOUT], [test "x$with_stdout" = "xyes"])
- 
-+AC_ARG_WITH([aaudio],[AS_HELP_STRING([--with-aaudio],[include the Android AAudio back end (loads libaaudio.so at run time)])])
-+if test "x$with_aaudio" = "xyes" ; then
-+  AC_DEFINE([CONFIG_AAUDIO], 1, [Include an audio backend for Android AAudio.])
-+  AC_CHECK_LIB([dl], [dlopen], [], [AC_MSG_ERROR([AAudio support requires dlopen])])
-+fi
-+AM_CONDITIONAL([USE_AAUDIO], [test "x$with_aaudio" = "xyes"])
-+
- AC_ARG_WITH([pipe],[AS_HELP_STRING([--with-pipe],[build the unix pipe backend (not the PipeWire backend!) into Shairport Sync])])
- if test "x$with_pipe" = "xyes" ; then
-   AC_DEFINE([CONFIG_PIPE], 1, [Include an audio backend to output to a unix pipe.])
---- a/Makefile.am	2026-09-26 03:50:22.267715296 +0200
-+++ b/Makefile.am	2026-09-26 03:50:22.443716407 +0200
-@@ -104,6 +104,10 @@
+diff --git a/Makefile.am b/Makefile.am
+index 5c7f214..2fbd05b 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -107,6 +107,10 @@ if USE_STDOUT
  shairport_sync_SOURCES += audio_stdout.c
  endif
  
@@ -27,9 +13,11 @@
  if USE_PIPE
  shairport_sync_SOURCES += audio_pipe.c
  endif
---- a/audio.c	2026-09-26 03:50:22.267715296 +0200
-+++ b/audio.c	2026-09-26 03:50:22.443716407 +0200
-@@ -62,8 +62,14 @@
+diff --git a/audio.c b/audio.c
+index 64aaeca..028511c 100644
+--- a/audio.c
++++ b/audio.c
+@@ -58,8 +58,14 @@ extern audio_output audio_pipe;
  #ifdef CONFIG_STDOUT
  extern audio_output audio_stdout;
  #endif
@@ -41,24 +29,15 @@
 +#ifdef CONFIG_AAUDIO
 +    &audio_aaudio,
 +#endif
- #ifdef CONFIG_ALSA
-     &audio_alsa,
+ #ifdef CONFIG_COREAUDIO
+     &audio_coreaudio,
  #endif
---- a/common.c	2026-09-26 03:50:22.267715296 +0200
-+++ b/common.c	2026-09-26 03:50:22.443716407 +0200
-@@ -1990,6 +1990,9 @@
- #ifdef CONFIG_STDOUT
-     strcat(version_string, "-stdout");
- #endif
-+#ifdef CONFIG_AAUDIO
-+    strcat(version_string, "-aaudio");
-+#endif
- #ifdef CONFIG_PIPE
-     strcat(version_string, "-pipe");
- #endif
+diff --git a/audio_aaudio.c b/audio_aaudio.c
+new file mode 100644
+index 0000000..d85a273
 --- /dev/null
-+++ b/audio_aaudio.c	2026-09-26 03:50:22.443716407 +0200
-@@ -0,0 +1,260 @@
++++ b/audio_aaudio.c
+@@ -0,0 +1,259 @@
 +/*
 + * Android AAudio output for Shairport Sync.
 + *
@@ -309,7 +288,6 @@
 +                             .prepare = NULL,
 +                             .get_configuration = &get_configuration,
 +                             .configure = &configure,
-+                             .start = NULL,
 +                             .play = &play,
 +                             .stop = &stop,
 +                             .is_running = NULL,
@@ -319,3 +297,35 @@
 +                             .volume = NULL,
 +                             .parameters = NULL,
 +                             .mute = NULL};
+diff --git a/common.c b/common.c
+index baa2b86..c443df7 100644
+--- a/common.c
++++ b/common.c
+@@ -2047,6 +2047,9 @@ char *get_version_string() {
+ #ifdef CONFIG_STDOUT
+     strcat(version_string, "-stdout");
+ #endif
++#ifdef CONFIG_AAUDIO
++    strcat(version_string, "-aaudio");
++#endif
+ #ifdef CONFIG_PIPE
+     strcat(version_string, "-pipe");
+ #endif
+diff --git a/configure.ac b/configure.ac
+index 987dcd8..c956045 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -92,6 +92,13 @@ if test "x$with_stdout" = "xyes" ; then
+ fi
+ AM_CONDITIONAL([USE_STDOUT], [test "x$with_stdout" = "xyes"])
+ 
++AC_ARG_WITH([aaudio],[AS_HELP_STRING([--with-aaudio],[include the Android AAudio back end (loads libaaudio.so at run time)])])
++if test "x$with_aaudio" = "xyes" ; then
++  AC_DEFINE([CONFIG_AAUDIO], 1, [Include an audio backend for Android AAudio.])
++  AC_CHECK_LIB([dl], [dlopen], [], [AC_MSG_ERROR([AAudio support requires dlopen])])
++fi
++AM_CONDITIONAL([USE_AAUDIO], [test "x$with_aaudio" = "xyes"])
++
+ AC_ARG_WITH([pipe],[AS_HELP_STRING([--with-pipe],[build the unix pipe backend (not the PipeWire backend!) into Shairport Sync])])
+ if test "x$with_pipe" = "xyes" ; then
+   AC_DEFINE([CONFIG_PIPE], 1, [Include an audio backend to output to a unix pipe.])
