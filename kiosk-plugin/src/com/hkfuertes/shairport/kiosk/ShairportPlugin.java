@@ -31,9 +31,6 @@ public final class ShairportPlugin implements KioskPlugin {
     private static final int TIMEOUT_MS = 10000;
     /** Shizuku wants at least 250 ms between two requests. */
     private static final int SPACING_MS = 300;
-    /** Settings of older versions, never sent: Wi-Fi protection is automatic now, and the
-     *  satellites are an app of their own (Sendspin Satellites). */
-    private static final List<String> RETIRED = Arrays.asList("wifi_low_latency", "satellites", "satellites_only", "satellites_44100");
     private static final Pattern RESULT = Pattern.compile("Broadcast completed: result=(-?\\d+)(?:, data=\"(.*)\")?");
     private static final Map<String, Object> VOLUME = new LinkedHashMap<>();
     /** List settings: app value -> form label (the app accepts the labels as values too). */
@@ -77,7 +74,6 @@ public final class ShairportPlugin implements KioskPlugin {
     synchronized void attach(PluginHost host, Map<String, Object> settings) {
         this.host = host;
         this.settings = new LinkedHashMap<>(settings);
-        this.settings.keySet().removeAll(RETIRED);
     }
 
     /** A form edit (KS UI or Remote Admin): send each changed value to the app. */
@@ -85,7 +81,6 @@ public final class ShairportPlugin implements KioskPlugin {
     public synchronized void configure(Map<String, Object> next) {
         if (host == null) return;
         next = new LinkedHashMap<>(next);
-        next.keySet().removeAll(RETIRED);
         for (Map.Entry<String, Object> entry : next.entrySet()) {
             if (!Objects.equals(entry.getValue(), settings.get(entry.getKey()))) {
                 queue.add(set(entry.getKey(), entry.getValue()));

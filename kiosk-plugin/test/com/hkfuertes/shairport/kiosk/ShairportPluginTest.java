@@ -71,7 +71,7 @@ public final class ShairportPluginTest {
         assert assertions = true;
         if (!assertions) throw new AssertionError("run with java -ea");
         statusBecomesEntitiesAndForm();
-        automaticWifiAndRootRefusal();
+        rootRefusalRevertsTheForm();
         formEditsReachTheApp();
         queuedEditsWinOverAnOlderStatus();
         switchStartsAnEnabledReceiverThatIsDown();
@@ -102,27 +102,19 @@ public final class ShairportPluginTest {
         assert host.saved == null : "unchanged settings are not saved again";
     }
 
-    static void automaticWifiAndRootRefusal() {
+    static void rootRefusalRevertsTheForm() {
         Host host = new Host();
         ShairportPlugin plugin = new ShairportPlugin();
         Map<String, Object> settings = form(true, "Kitchen", "HomePod mini");
-        settings.put("wifi_low_latency", true); // saved by older plugins
-        settings.put("satellites", true);
         plugin.attach(host, settings);
         String status = STATUS_OK;
         plugin.poll();
         host.answer(status);
-        assert host.saved == null : "discarding the old toggles needs no app configuration";
-        settings.put("wifi_low_latency", false);
-        settings.put("satellites", false);
-        plugin.configure(settings);
-        assert host.pending.isEmpty() : "the removed toggles must never reach the app";
+        assert host.saved == null : "unchanged settings are not saved again";
 
         plugin.poll();
         host.answer(status.replace("airplay_2=true", "airplay_2=false")); // root refused
         assert Boolean.FALSE.equals(host.saved.get("airplay_2")) : host.saved;
-        assert !host.saved.containsKey("wifi_low_latency") : host.saved;
-        assert !host.saved.containsKey("satellites") : host.saved;
         assert Boolean.TRUE.equals(host.saved.get("link_stream_volume")) : host.saved;
         assert host.pending.isEmpty() : "root refusal must not retry or disable unrelated settings";
     }
