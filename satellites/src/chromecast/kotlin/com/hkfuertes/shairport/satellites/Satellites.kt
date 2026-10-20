@@ -244,7 +244,7 @@ class Satellites(
                 val type = JSONObject(message).optString("type")
                 if (namespace != Cast.HEARTBEAT && type !in CHATTER) { // their periodic reports
                     val media = if (type == "MEDIA_STATUS") JSONObject(message).optJSONArray("status")?.optJSONObject(0) else null
-                    log("Cast $name: $type" + media?.let { " ${it.optString("playerState")} currentTime=${it.optDouble("currentTime")}${it.optString("idleReason").takeIf { r -> r.isNotBlank() }?.let { r -> " ($r)" } ?: ""}" } ?: "")
+                    log("Cast $name: $type${media?.let { " ${it.optString("playerState")} (${it.optString("idleReason")}) currentTime=${it.optDouble("currentTime")}" } ?: ""}")
                 }
                 if (type == "LOAD_FAILED") {
                     loaded = 0 // the device could not take it: try again, in a while

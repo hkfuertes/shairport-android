@@ -3,7 +3,10 @@ package com.hkfuertes.shairport.satellites
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.util.Log
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -58,7 +61,7 @@ internal class Protocol(
             @Suppress("DEPRECATION") // resolveService: the replacement is API 34+
             nsd.resolveService(info, object : NsdManager.ResolveListener {
                 override fun onServiceResolved(resolved: NsdServiceInfo) {
-                    val host = resolved.host
+                    val host = best(resolved)
                     if (host != null) {
                         val attributes = resolved.attributes.mapValues { (_, value) -> value?.toString(Charsets.UTF_8) ?: "" }
                         fun attribute(key: String) = attributes[key] ?: ""
@@ -77,8 +80,17 @@ internal class Protocol(
                     done.countDown()
                 }
             })
-            runCatching { done.await(RESOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+            runCatching { done.await(RESOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS) } // their resolve can hang
         }
+
+        /** Their IPv6 link-locals do not answer (a Nest Mini): take an IPv4 if there is one. */
+        private fun best(resolved: NsdServiceInfo): InetAddress? =
+            if (Build.VERSION.SDK_INT >= 33) {
+                resolved.hostAddresses.filterNot { it.isLoopbackAddress || it.isLinkLocalAddress }
+                    .minByOrNull { if (it is Inet4Address) 0 else 1 }
+            } else {
+                @Suppress("DEPRECATION") resolved.host // the one address the old resolver gives
+            }
 
         override fun onServiceLost(info: NsdServiceInfo) {
             devices.remove(info.serviceName) ?: return
