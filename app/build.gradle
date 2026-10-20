@@ -11,8 +11,8 @@ android {
         applicationId 'com.hkfuertes.shairport'
         minSdk 27 // AAudio is reliable from 8.1 (Oboe uses it from there)
         targetSdk 35
-        versionCode 3
-        versionName '0.1.2'
+        versionCode 4
+        versionName '0.2.0'
 
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
