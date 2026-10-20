@@ -12,6 +12,7 @@ import android.content.ServiceConnection
 import android.content.SharedPreferences
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -36,6 +37,13 @@ import org.json.JSONObject
  */
 class SatellitesService : Service() {
     private lateinit var preferences: SharedPreferences
+    /**
+     * mDNS hears the network: without it some Wi-Fi drivers (the POCO F1's) drop the multicast that
+     * answers our player searches and asks for our server, unless Shairport's receiver holds one.
+     */
+    // ponytail: taken once; Shairport re-takes its own after a Wi-Fi reconnect (some drivers forget
+    // it then), do the same here if players go missing after one with Shairport's receiver off.
+    private var multicast: WifiManager.MulticastLock? = null
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var protocol: Protocol? = null
     @Volatile private var shairport: Messenger? = null
@@ -85,6 +93,10 @@ class SatellitesService : Service() {
         protocol = runCatching { Protocol(this, log = { Log.i(TAG, it) }, changed = { report(it) }) }
             .onFailure { Log.e(TAG, "Could not listen on port ${Satellites.PORT}", it) }
             .getOrNull() ?: return stopSelf()
+        multicast = applicationContext.getSystemService(WifiManager::class.java)?.createMulticastLock(TAG)?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
         listeners += notify
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         bind()
@@ -105,6 +117,7 @@ class SatellitesService : Service() {
             it.close()
         }
         protocol?.close()
+        multicast?.release()
         protocol = null
         report(emptyList())
         linked(Link.OFF)
