@@ -161,8 +161,9 @@ They are the same app around a different server. Turn on **Satellites** in one; 
 
 ### Chromecast
 
-- Every Google Cast device on the network (`_googlecast._tcp`) is cast to: speakers, screens, groups — all of them, as long as the app runs. Google Cast has no pairing to allow.
-- Each device pulls Shairport's played audio as an endless WAV over HTTP (`audio/wav`), the way [AirConnect](https://github.com/philippe44/AirConnect)'s aircast feeds its devices: they follow the stream's arrival. They are not sample-synchronized, and they lag behind it by their own startup buffering (seconds, on top of the 1 s lead): use **Only satellites**, or accept the delay.
+- Every Google Cast device on the network (`_googlecast._tcp`) is cast to — speakers, screens, groups, each with its switch — as long as the app runs. Google Cast has no pairing to allow.
+- Each device pulls Shairport's played audio as an endless WAV over HTTP (`audio/wav`), the way [AirConnect](https://github.com/philippe44/AirConnect)'s aircast feeds its devices: they follow the stream's arrival, each beginning at its own live edge. They are not sample-synchronized with it nor exactly with each other (each buffers what it wants, seconds behind it): use **Only satellites**, or accept the delay. For Cast devices in step with each other, cast to a speaker group (below), not to each one.
+- A speaker group made in the Google Home app is cast to like one device: its members play in step, by Google's own sync. Switch its members off, or they play twice, once alone and once in the group. The group lags like one device; **Only satellites** fits.
 - A pause or skip keeps playing what was buffered; a change of rate restarts the stream (a gap while each device reloads). Nothing shows on the device's screen but the stream: no title, artwork or clock.
 - Volume goes as the device's own Google Cast volume (its speaker's, which the Home app and "hey Google" also set): with **Link Android music volume** on in Shairport, the keys set both together.
 

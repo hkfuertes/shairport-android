@@ -31,8 +31,7 @@ class Satellites(
     private var generation = 0
     private var rate = 44100
     private var write = 0L // this generation's bytes, its WAV header included
-    private var start = -1L // where every listener of this generation begins
-    private val ring = ByteArray(1 shl 23) // 8 MiB ≈ 47 s, for the devices' Range re-requests
+    private val ring = ByteArray(1 shl 21) // 2 MiB ≈ 12 s, the catch-up a listener may need
 
     init {
         thread(name = "cast-http") {
@@ -51,7 +50,6 @@ class Satellites(
                 generation++
                 this.rate = rate
                 write = 0
-                start = -1
                 put(wav(rate))
                 log("Stream $generation at $rate Hz")
             }
@@ -113,12 +111,13 @@ class Satellites(
                 while (!closed && generation == 0) lock.wait(1000) // nothing played yet: hold it open
                 if (closed) return@use
                 mine = generation
-                if (start == -1L) start = (write - rate).coerceAtLeast(0) // a quarter second of catch-up
                 val oldest = (write - ring.size).coerceAtLeast(0)
                 // 200, ranges ignored: the stream is endless, and the Chrome-stacked devices
                 // (a Nest Audio) abort a 206 whose end the live stream then passes — AirConnect's
-                // 206s are for the Cast-Lite ones. Every listener begins (again) at [start].
-                position = start.coerceIn(oldest, write)
+                // 206s are for the Cast-Lite ones. Each listener begins a quarter second behind
+                // the live edge, whenever it comes: an own start, so a late one is not stuck at
+                // this generation's beginning (seconds behind); its own buffering adds to that.
+                position = (write - rate).coerceIn(oldest, write)
                 headers = "HTTP/1.0 200 OK\r\nServer: Shairport\r\nContent-Type: audio/wav\r\nConnection: close\r\n\r\n"
                 head = wav(rate) // its stream begins with the header; [position] counts it too
             }
