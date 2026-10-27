@@ -1,6 +1,8 @@
 # Satellites
 
-**Work in progress.** Companion apps for the [Shairport](../README.md) receiver, built with it and signed with the same key, that play what it plays on other speakers, fed by its [audio tap](../README.md#audio-tap): in sync with it and with the rest of an AirPlay 2 group — for the sender they are part of this speaker, one volume, grouped together. They are experimental, change with the receiver, and are not in any release: `make` builds them and `make install` adb-installs them along with the receiver (see [Build](../README.md#build)).
+> **Archived, not built.** Out of the Gradle build since the `housekeeping/satellites` branch; kept here for reference only, and likely to be deleted.
+
+**Work in progress.** Companion apps for the [Shairport](../README.md) receiver, built with it and signed with the same key, that play what it plays on other speakers, fed by its [audio tap](../DESIGN.md#audio-tap): in sync with it and with the rest of an AirPlay 2 group — for the sender they are part of this speaker, one volume, grouped together. They are experimental, change with the receiver, and are not in any release: to build them again, re-add `include(":satellites")` to `settings.gradle` and the satellites steps to the Dockerfile (see git history).
 
 - `sendspin-release.apk`, **Sendspin Satellites** (`com.hkfuertes.shairport.sendspin`): a minimal [Sendspin](https://github.com/Sendspin/spec) server, for Sendspin players.
 - `snapcast-release.apk`, **Snapcast Satellites** (`com.hkfuertes.shairport.snapcast`): a minimal [Snapcast](https://github.com/badaix/snapcast) server, for Snapcast clients.
