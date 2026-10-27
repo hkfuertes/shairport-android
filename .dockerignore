@@ -3,9 +3,6 @@
 !app/build.gradle
 !app/proguard-rules.pro
 !app/src
-!satellites/build.gradle
-!satellites/proguard-rules.pro
-!satellites/src
 !gradle
 !gradlew
 !build.gradle
