@@ -1,6 +1,6 @@
 # Shairport
 
-An AirPlay receiver for Android 8.1 or later (arm64 and 32-bit ARM). [Shairport Sync](https://github.com/mikebrady/shairport-sync) 5.6.2 runs inside the app as a JNI library and advertises itself through Android's own mDNS. Classic AirPlay needs no root; AirPlay 2 (multi-room) needs root for [NQPTP](https://github.com/mikebrady/nqptp) 1.2.9, its timing service. With root, Wi-Fi power-save protection also starts automatically with the receiver, whatever the AirPlay version. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
+An AirPlay receiver for Android 8.1 or later (arm64 and 32-bit ARM). [Shairport Sync](https://github.com/mikebrady/shairport-sync) 5.6.3 runs inside the app as a JNI library and advertises itself through Android's own mDNS. Classic AirPlay needs no root; AirPlay 2 (multi-room) needs root for [NQPTP](https://github.com/mikebrady/nqptp) 1.2.9, its timing service. With root, Wi-Fi power-save protection also starts automatically with the receiver, whatever the AirPlay version. Verified on a rooted POCO F1 (LineageOS, Android 15, Magisk).
 
 A [Kiosk Satellite plugin](#kiosk-satellite-plugin) manages the app from a kiosk and Home Assistant. Other apps signed with the same key can take what the receiver plays, as it plays it: the [audio tap](#audio-tap).
 
@@ -51,6 +51,8 @@ The whole setup works over adb, no screen interaction. Root only for AirPlay 2 a
    ```
 
 5. Start at every boot: `--es key start_at_boot --ez value true`.
+
+Hardware media keys require `now_playing=true`: this setting creates the MediaSession used to forward play/pause to the AirPlay 2 sender.
 
 ## Kiosk Satellite plugin
 

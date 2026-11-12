@@ -67,8 +67,16 @@ class NowPlaying(private val context: Context, private val remote: (Int) -> Unit
         }
         val remote = last.getBoolean(KEY_REMOTE)
         val playing = state == PlaybackState.STATE_PLAYING
-        val session = session ?: MediaSession(context, TAG).also { session = it }
-        session.setCallback(if (remote) callback else null)
+        val session = session ?: MediaSession(context, TAG).also {
+            // Replacing the callback cancels Android's pending single-tap play/pause event.
+            it.setCallback(object : MediaSession.Callback() {
+                override fun onPlay() = sendRemote(PLAY)
+                override fun onPause() = sendRemote(PAUSE)
+                override fun onSkipToNext() = sendRemote(NEXT)
+                override fun onSkipToPrevious() = sendRemote(PREVIOUS)
+            })
+            session = it
+        }
         session.setMetadata(
             MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)
@@ -110,11 +118,8 @@ class NowPlaying(private val context: Context, private val remote: (Int) -> Unit
         notifications.notify(NOTIFICATION_ID, builder.build())
     }
 
-    private val callback = object : MediaSession.Callback() {
-        override fun onPlay() = remote(PLAY)
-        override fun onPause() = remote(PAUSE)
-        override fun onSkipToNext() = remote(NEXT)
-        override fun onSkipToPrevious() = remote(PREVIOUS)
+    private fun sendRemote(command: Int) {
+        if (last.getBoolean(KEY_REMOTE)) remote(command)
     }
 
     /** A button: ReceiverService hands [command] to the engine (Engine.remote). */

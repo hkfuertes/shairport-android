@@ -50,7 +50,7 @@ get() {
   echo "$3  /tmp/src.tar.gz" | sha256sum -c -
   mkdir -p "/src/$1" && tar -xzf /tmp/src.tar.gz -C "/src/$1" --strip-components=1 && rm /tmp/src.tar.gz
 }
-get shairport-sync 0a34fbda83724cc06266aadcf7c88acc8fef4e7d 3e5a58aba5a751ed8c33ebd73228218105f0afe26da382cd76fd93fbf21f83f4
+get shairport-sync 7ce90d89529dd760488f20592a7cbff626672f6c f5b3b66f57197f11526de2e3c1c22e24ed6552e247242bf0ec89e5d3d7410dd5
 get nqptp ab8fb67483411640fd7f1e193889482f2421c37c 3e90e2ea1f52f5c1559a5a46b2cdadb46ac6532a08a34f8cd7e77aa39f6a90c7
 EOF
 COPY native/patches /patches
