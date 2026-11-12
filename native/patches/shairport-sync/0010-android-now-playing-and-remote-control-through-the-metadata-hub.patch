@@ -37,7 +37,7 @@ index 27b9a24..83f079b 100644
 @@ -23,6 +23,8 @@
  
  #include "common.h"
- #include "mdns.h"
+ #include "mdns/mdns.h"
 +#include "metadata/hub.h"
 +#include "remote/remote.h"
  #include "utilities/exit.h"

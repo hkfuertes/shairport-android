@@ -20,7 +20,7 @@ Signed-off-by: Miguel Fuertes <hkfuertes@users.noreply.github.com>
  Makefile.am |   2 +-
  android.c   | 191 ++++++++++++++++++++++++++++++++++++++++++++++++++++
  common.c    |   6 +-
- mdns.c      |   2 +
+ mdns/mdns.c |   2 +
  shairport.c |   2 +-
  5 files changed, 199 insertions(+), 4 deletions(-)
  create mode 100644 android.c
@@ -29,7 +29,7 @@ diff --git a/Makefile.am b/Makefile.am
 index 2fbd05b..eea385c 100644
 --- a/Makefile.am
 +++ b/Makefile.am
-@@ -35,7 +35,7 @@ shairport_sync_SOURCES = shairport.c bonjour_strings.c mdns.c common.c rtp.c \
+@@ -43,7 +43,7 @@ shairport_sync_SOURCES = shairport.c bonjour_strings.c mdns/mdns.c common.c rtp.c \
    utilities/rtsp_message_utilities.c \
    utilities/string_utilities.c \
    utilities/general_utilities.c \
@@ -64,7 +64,7 @@ index 0000000..75513ce
 +#include <unistd.h>
 +
 +#include "common.h"
-+#include "mdns.h"
++#include "mdns/mdns.h"
 +#include "utilities/exit.h"
 +
 +int shairport_main(int argc, char **argv);
@@ -259,10 +259,10 @@ index c443df7..13f5889 100644
    return response;
  }
  
-diff --git a/mdns.c b/mdns.c
+diff --git a/mdns/mdns.c b/mdns/mdns.c
 index 92df9fa..1ed7cff 100644
---- a/mdns.c
-+++ b/mdns.c
+--- a/mdns/mdns.c
++++ b/mdns/mdns.c
 @@ -32,6 +32,7 @@
  #include <stdlib.h>
  #include <string.h>
