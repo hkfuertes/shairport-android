@@ -191,6 +191,7 @@ class ReceiverService : Service() {
         awaitEngineExit() // also one left by a previous instance of this service
         val configFile = File(filesDir, CONFIG_FILE)
         val shm = getExternalFilesDir(null)?.let { File(it, SHM_DIRECTORY) }
+        shm?.let(::awaitDataBindMount)
         try {
             shm?.mkdirs()
             if (airplay2 || !rootUnavailable) {
@@ -276,6 +277,24 @@ class ReceiverService : Service() {
             if (enginePid() == null) return
             Thread.sleep(ENGINE_EXIT_POLL_MS)
         }
+    }
+
+    /**
+     * Android 11+ bind-mounts Android/data straight onto the lower filesystem a few seconds
+     * after the FUSE /storage mount. An engine that maps NQPTP's shared memory before that
+     * gets FUSE's page cache, which never sees NQPTP's writes: no clock, so no audio.
+     */
+    private fun awaitDataBindMount(shm: File) {
+        val data = shm.parentFile?.parentFile?.parentFile?.path ?: return // files/<package>/data
+        fun mounts() = runCatching { File("/proc/self/mountinfo").readLines() }.getOrDefault(emptyList())
+        fun fuse() = mounts().any { it.split(' ').getOrNull(4) == "/storage/emulated" && " - fuse " in it }
+        fun bound() = mounts().any { it.split(' ').getOrNull(4) == data }
+        if (!fuse()) return // sdcardfs or a direct mount: already coherent
+        repeat(DATA_MOUNT_POLLS) {
+            if (bound()) return
+            Thread.sleep(DATA_MOUNT_POLL_MS)
+        }
+        Log.w(TAG, "$data is still on FUSE; AirPlay 2 may get no clock")
     }
 
     private fun enginePid(): Int? = getSystemService(ActivityManager::class.java).runningAppProcesses
@@ -473,6 +492,8 @@ class ReceiverService : Service() {
         private const val RESTART_DELAY_MS = 2_000L
         private const val ENGINE_EXIT_POLLS = 50
         private const val ENGINE_EXIT_POLL_MS = 100L
+        private const val DATA_MOUNT_POLLS = 60
+        private const val DATA_MOUNT_POLL_MS = 500L
         /** Covers Magisk's grant prompt (10 s by default). */
         private const val ROOT_START_TIMEOUT_S = 15L
         private const val ROOT_STOP_TIMEOUT_S = 3L
