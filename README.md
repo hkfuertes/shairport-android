@@ -106,4 +106,4 @@ Most of the code, patches and documentation were written by AI coding agents (Cl
 ## Credits
 
 - [Shairport Sync](https://github.com/mikebrady/shairport-sync) and [NQPTP](https://github.com/mikebrady/nqptp), by Mike Brady and contributors: the AirPlay receiver and its timing service — this app is an Android shell around them. The engine also bundles OpenSSL, FFmpeg, libsodium, libgcrypt and libgpg-error, libplist, libconfig, popt and libuuid; each keeps its own licence, versions pinned in the [Dockerfile](Dockerfile).
-- [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) and its [plugin template](https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world), by jxlarrea: the plugin SDK and build tool.
+- [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) and its [plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins), by jxlarrea: the plugin SDK and build tool.

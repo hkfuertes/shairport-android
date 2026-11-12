@@ -121,8 +121,8 @@ RUN "$ANDROID_HOME/build-tools/35.0.0/dexdump" app/build/outputs/apk/release/app
 
 # Kiosk Satellite plugin: SDK interfaces and build tool from the pinned template repository.
 FROM sdk AS plugin
-RUN curl -fsSL https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world/archive/8a070aca0815346fc2e68b29ed52e07c240d480e.tar.gz -o /tmp/ks.tar.gz \
-    && echo "89c49fb096f5539ae8ffe65c32fe6f075f7109fb57e09014d454a1afa14efbbf  /tmp/ks.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://github.com/jxlarrea/kiosk-satellite-plugins/archive/8a070aca0815346fc2e68b29ed52e07c240d480e.tar.gz -o /tmp/ks.tar.gz \
+    && echo "9c8822011dbd92c95a80af80dd31a0f03752f3076fe9c5b0c31cb7141c4f44fa  /tmp/ks.tar.gz" | sha256sum -c - \
     && mkdir /ks && tar -xzf /tmp/ks.tar.gz -C /ks --strip-components=1 && rm /tmp/ks.tar.gz
 ENV LANG=C.UTF-8
 COPY kiosk-plugin /plugin
